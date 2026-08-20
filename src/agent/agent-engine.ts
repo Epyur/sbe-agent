@@ -12,6 +12,8 @@ export interface RunAgentParams {
   model?: string;
   onToolResult: (message: AgentMessage) => void;
   onAssistant: (text: string) => void;
+  /** Статус работы агента для индикатора в чате (что агент делает сейчас). */
+  onProgress: (status: string) => void;
 }
 
 /** Цикл агента: контекст → LLM → tool_call/final → исполнение → повтор. */
@@ -75,6 +77,7 @@ export class AgentEngine {
     const seenCalls = new Map<string, number>();
 
     for (let i = 0; i < this.maxIterations; i++) {
+      params.onProgress('Агент думает…');
       let turn: LlmTurn;
       try {
         const parsed = await this.llm.completeJson(system, transcript, params.model ? { model: params.model } : undefined);
@@ -89,6 +92,7 @@ export class AgentEngine {
         return;
       }
 
+      params.onProgress(`Вызываю инструмент «${turn.tool || '…'}»…`);
       const tool = this.findTool(turn.tool || '');
       if (!tool) {
         params.onToolResult(this.toolMessage(turn.tool || '?', false, `Неизвестный инструмент «${turn.tool}»`));

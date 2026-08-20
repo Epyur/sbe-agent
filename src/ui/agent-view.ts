@@ -24,6 +24,9 @@ export class AgentView extends ItemView {
   private currentDialogId: string | null = null;
   private attachment: AgentAttachment | null = null;
   private running = false;
+  private workingEl: HTMLElement | null = null;
+  private workingStatusEl: HTMLElement | null = null;
+  private workingStatusText = '';
   private engine: AgentEngine | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: SbeAgentPlugin) {
@@ -208,6 +211,18 @@ export class AgentView extends ItemView {
     for (const m of dialog.messages) {
       this.renderMessage(messages, m);
     }
+
+    // индикатор работы агента (что делает сейчас)
+    this.workingEl = messages.createDiv({ cls: 'tn-ag-working' });
+    const spinner = this.workingEl.createSpan({ cls: 'tn-ag-working-spin' });
+    spinner.setText('');
+    this.workingStatusEl = this.workingEl.createSpan({ cls: 'tn-ag-working-text' });
+    this.workingEl.hidden = true;
+    if (this.running) {
+      this.workingEl.hidden = false;
+      this.workingStatusEl.setText(this.workingStatusText || 'Агент думает…');
+    }
+
     messages.scrollTop = messages.scrollHeight;
 
     const inputRow = this.bodyEl.createDiv({ cls: 'tn-ag-input-row' });
@@ -399,19 +414,42 @@ export class AgentView extends ItemView {
     if (this.inputEl) this.inputEl.value = '';
 
     try {
+      this.workingStatusText = 'Агент думает…';
+      this.showWorking(this.workingStatusText);
       await engine.run({
         dialog: this.currentDialog as Dialog,
         userMessage: text,
         attachment,
         model: this.plugin.settings.model || undefined,
+        onProgress: (status) => {
+          this.workingStatusText = status;
+          this.showWorking(status);
+        },
         onToolResult: (message) => this.addMessage(message),
-        onAssistant: (text2) => this.addMessage({ role: 'assistant', content: text2, created_at: new Date().toISOString() }),
+        onAssistant: (text2) => {
+          this.finishWorking();
+          this.addMessage({ role: 'assistant', content: text2, created_at: new Date().toISOString() });
+        },
       });
     } catch (e: unknown) {
+      this.finishWorking();
       new Notice(`Ошибка агента: ${e instanceof Error ? e.message : String(e)}`);
       this.addMessage({ role: 'assistant', content: `Ошибка: ${e instanceof Error ? e.message : String(e)}`, created_at: new Date().toISOString() });
     } finally {
-      this.running = false;
+      this.finishWorking();
     }
+  }
+
+  private showWorking(status: string): void {
+    this.workingStatusText = status;
+    if (this.workingEl) {
+      this.workingEl.hidden = false;
+      if (this.workingStatusEl) this.workingStatusEl.setText(status);
+    }
+  }
+
+  private finishWorking(): void {
+    this.running = false;
+    if (this.workingEl) this.workingEl.hidden = true;
   }
 }

@@ -56,6 +56,14 @@
 
 ## История работ
 
+### 2026-08-20 — v0.2.1 (индикатор работы агента в чате)
+- В чате добавлен индикатор активности: спиннер + статус («Агент думает…» → «Вызываю
+  инструмент «get_emails»…»). Engine передаёт статус через колбэк `onProgress`;
+  view (`showWorking`/`finishWorking`) показывает/скрывает индикатор. Скрывается после
+  финального ответа или ошибки.
+- Версия 0.2.0 → **0.2.1** (manifest + package.json). `npx tsc --noEmit` EXIT=0;
+  `npm run build` OK.
+
 ### 2026-08-20 — v0.2.0 (mermaid/png/html, скилы, локальные кэши, редактируемый контекст)
 - **Новый серверный контейнер `agent-mermaid`** (`server_back/agent-mermaid/`): Node +
   `@mermaid-js/mermaid-cli` + chromium (системный, `PUPPETEER_EXECUTABLE_PATH`), внутренний

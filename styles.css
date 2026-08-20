@@ -787,6 +787,38 @@
   font-size: 12px;
 }
 
+/* индикатор работы агента */
+.tn-ag-working {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.tn-ag-working[hidden] {
+  display: none;
+}
+
+.tn-ag-working-spin {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: tn-ag-spin .8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tn-ag-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .tn-ag-tool-label {
   color: var(--muted);
   font-weight: 600;
