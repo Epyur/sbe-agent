@@ -50,10 +50,11 @@ export class AgentEngine {
       `Ты можешь вызывать инструменты для доступа к данным и создания файлов.`,
       `Правила:`,
       `1. Для ответа сначала собери нужные данные через тулы (например, get_tasks / get_emails).`,
-      `2. Для генерации документа (Word/Excel/PDF/JSON) сформируй spec и вызови create_* — получишь ссылку на скачивание.`,
+      `2. Для генерации документа (Word/Excel/PDF/JSON) сформируй spec и вызови create_* — файл будет доступен по кнопке в сообщении тула.`,
       `3. Прикреплённый пользователем файл можно прочитать тулом parse_file.`,
-      `4. Если данных недостаточно или прав нет — честно скажи об этом.`,
-      `5. НЕ выдумывай данные, которых не получил из тулов.`,
+      `4. НЕ вставляй длинные URL (ссылки на скачивание S3) в текст ответа — скажи пользователю, что файл можно скачать кнопкой в сообщении тула, и упомяни название файла.`,
+      `5. Если данных недостаточно или прав нет — честно скажи об этом.`,
+      `6. НЕ выдумывай данные, которых не получил из тулов.`,
       ``,
       `Инструменты (JSON-схемы):`,
       toolLines.join('\n'),
@@ -124,7 +125,7 @@ export class AgentEngine {
       }
 
       const result = await tool.execute(this.ctx, turn.arguments || {}, params.attachment);
-      params.onToolResult(this.toolMessage(turn.tool, result.ok, result.ok ? this.summaryForLlm(result.summary, result.data) : (result.error || 'ошибка')));
+      params.onToolResult(this.toolMessage(turn.tool, result.ok, result.ok ? result.summary : (result.error || 'ошибка'), result.link));
 
       transcript += `\n${result.ok
         ? `[Результат тула ${turn.tool} (ok)] ${this.summaryForLlm(result.summary, result.data)}`
@@ -153,12 +154,13 @@ export class AgentEngine {
     return { type: 'final', text: String(parsed ?? '') };
   }
 
-  private toolMessage(tool: string, ok: boolean, content: string): AgentMessage {
+  private toolMessage(tool: string, ok: boolean, content: string, link?: { url: string; label: string }): AgentMessage {
     return {
       role: 'tool',
       tool,
       toolOk: ok,
       content,
+      link,
       created_at: new Date().toISOString(),
     };
   }
@@ -169,7 +171,7 @@ export class AgentEngine {
     let json = '';
     try {
       json = JSON.stringify(data);
-      if (json.length > 8000) json = json.slice(0, 8000) + '\n…(обрезано)';
+      if (json.length > 30000) json = json.slice(0, 30000) + '\n…(обрезано)';
     } catch {
       json = String(data);
     }

@@ -10,6 +10,8 @@ export interface AgentMessage {
   /** Имя тула (для role='tool') и результат его исполнения. */
   tool?: string;
   toolOk?: boolean;
+  /** Активная ссылка для кнопки (скачивание файла). */
+  link?: AgentMessageLink;
   created_at: string;
 }
 
@@ -38,6 +40,14 @@ export interface ToolCallResult {
   summary: string;
   data?: unknown;
   error?: string;
+  /** Активная ссылка (например, скачивание файла) для отрисовки кнопкой в чате. */
+  link?: { url: string; label: string };
+}
+
+/** Ссылка, отображаемая кнопкой в сообщении (например, скачивание сгенерированного файла). */
+export interface AgentMessageLink {
+  url: string;
+  label: string;
 }
 
 /** Ответ agent-service на генерацию файла. */

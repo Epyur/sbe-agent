@@ -793,6 +793,48 @@
   margin-bottom: 4px;
 }
 
+.tn-ag-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.tn-ag-download {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff !important;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.tn-ag-download:hover {
+  background: #c01713;
+  color: #fff !important;
+}
+
+.tn-ag-copy {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 8px;
+  margin-top: 6px;
+  float: right;
+}
+
+.tn-ag-copy:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .tn-ag-tool.err {
   border-color: #fecaca;
   background: #fff5f5;
@@ -808,6 +850,7 @@
 
 /* строка ввода */
 .tn-ag-input-row {
+  width: 100%;
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -825,6 +868,12 @@
   background: var(--bg);
   border-radius: var(--radius-sm);
   font-size: 12px;
+}
+
+/* класс .tn-ag-attach-chip задаёт display:flex — он перекрывал UA-стиль [hidden]{display:none},
+   и пустой чип (flex-basis:100%) всё равно занимал место, ужимая поле ввода. */
+.tn-ag-attach-chip[hidden] {
+  display: none;
 }
 
 .tn-ag-chip-x {
@@ -855,6 +904,7 @@
 
 .tn-ag-input {
   flex: 1;
+  min-width: 0;
   min-height: 36px;
   max-height: 160px;
   resize: vertical;

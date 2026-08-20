@@ -169,7 +169,7 @@ export function createTools(): AgentTool[] {
           properties: {
             query: { type: 'string', description: 'Поиск по теме/автору/номеру' },
             direction: { type: 'string', description: 'Направление (название)' },
-            limit: { type: 'number', description: 'Сколько показать (по умолчанию 10)' },
+            limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
           },
         },
       },
@@ -183,7 +183,7 @@ export function createTools(): AgentTool[] {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Поиск по названию/типу/куратору' },
-            limit: { type: 'number', description: 'Сколько показать (по умолчанию 10)' },
+            limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
           },
         },
       },
@@ -197,7 +197,7 @@ export function createTools(): AgentTool[] {
           type: 'object',
           properties: {
             status: { type: 'string', description: 'Статус: new/processing/completed' },
-            limit: { type: 'number', description: 'Сколько показать (по умолчанию 10)' },
+            limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
           },
         },
       },
@@ -206,14 +206,14 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'get_tasks',
-        description: 'Поиск задач в локальной базе задач (кэш плагина «Задачи»). Всегда доступно.',
+        description: 'Поиск задач в локальной базе задач (кэш плагина «Задачи», fallback — кэш монолита yougile_cache.json). Всегда доступно. Возвращает также агрегаты byProject/byColumn/completed — используй их для вопросов вида «сколько задач по проекту/колонке/статусу».',
         input_schema: {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Поиск по названию/описанию/исполнителю' },
             project: { type: 'string', description: 'Фильтр по проекту' },
             completed: { type: 'boolean', description: 'Только завершённые' },
-            limit: { type: 'number', description: 'Сколько показать (по умолчанию 10)' },
+            limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
           },
         },
       },

@@ -19,10 +19,12 @@ export async function generateFile(
     }, 120000);
     assertOk(res, 'агент');
     const data = JSON.parse(res.text) as { url: string; expires_at: string; file_name: string };
-    const ext = format.toUpperCase();
+    const formatLabel = { docx: 'Word', xlsx: 'Excel', pdf: 'PDF', json: 'JSON' }[format];
+    const until = new Date(data.expires_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     return {
       ok: true,
-      summary: `Файл **${data.file_name}** (${ext}) сформирован. Скачивание доступно до ${new Date(data.expires_at).toLocaleString('ru-RU')}:\n${data.url}`,
+      summary: `Файл **${data.file_name}** (${formatLabel}) сформирован. Скачивание доступно до ${until}.`,
+      link: { url: data.url, label: `⬇ Скачать файл ${formatLabel}` },
       data,
     };
   } catch (e: unknown) {
@@ -63,6 +65,15 @@ export async function parseFile(
     }
     if (parsed.sheets) {
       summary += ` Листов: ${parsed.sheets.length}.`;
+    }
+    if (parsed.kind === 'json' && parsed.data !== undefined) {
+      let jsonSnippet = '';
+      try {
+        jsonSnippet = JSON.stringify(parsed.data);
+      } catch {
+        jsonSnippet = String(parsed.data);
+      }
+      summary += `\n\n\`\`\`json\n${jsonSnippet.slice(0, 600)}${jsonSnippet.length > 600 ? '\n…' : ''}\n\`\`\``;
     }
     return { ok: true, summary, data: parsed };
   } catch (e: unknown) {

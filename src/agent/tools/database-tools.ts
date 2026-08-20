@@ -60,7 +60,7 @@ function matchesQuery(item: Record<string, unknown>, query: string): boolean {
 }
 
 function limitItems(items: Record<string, unknown>[], limit: number): Record<string, unknown>[] {
-  return items.slice(0, Math.max(1, Math.min(limit || 10, 50)));
+  return items.slice(0, Math.max(1, Math.min(limit || 20, 200)));
 }
 
 export async function getEmails(
@@ -69,7 +69,7 @@ export async function getEmails(
 ): Promise<ToolCallResult> {
   try {
     const query = String(args.query || '').trim();
-    const limit = Number(args.limit) || 10;
+    const limit = Number(args.limit) || 20;
     const direction = String(args.direction || '').trim();
     let items = await pullItems(ctx, 'mailer', 'emails', []);
     if (direction) {
@@ -91,7 +91,7 @@ export async function getEmails(
     return {
       ok: true,
       summary: `Письма: найдено ${items.length}, показано ${picked.length}.`,
-      data: picked,
+      data: { total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
@@ -104,7 +104,7 @@ export async function getDocuments(
 ): Promise<ToolCallResult> {
   try {
     const query = String(args.query || '').trim();
-    const limit = Number(args.limit) || 10;
+    const limit = Number(args.limit) || 20;
     let items = await pullItems(ctx, 'documents', 'documents', []);
     items = items.filter(i => matchesQuery(i, query));
     const picked = limitItems(items, limit).map(i => ({
@@ -118,7 +118,7 @@ export async function getDocuments(
     return {
       ok: true,
       summary: `Документы: найдено ${items.length}, показано ${picked.length}.`,
-      data: picked,
+      data: { total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
@@ -131,7 +131,7 @@ export async function getLimsRequests(
 ): Promise<ToolCallResult> {
   try {
     const status = String(args.status || '').trim();
-    const limit = Number(args.limit) || 10;
+    const limit = Number(args.limit) || 20;
     let items = await pullItems(ctx, 'lab', 'requests', []);
     if (status) {
       items = items.filter(i => String(i.status || '').toLowerCase() === status.toLowerCase());
@@ -146,7 +146,7 @@ export async function getLimsRequests(
     return {
       ok: true,
       summary: `Заявки ЛИМС: найдено ${items.length}, показано ${picked.length}.`,
-      data: picked,
+      data: { total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };

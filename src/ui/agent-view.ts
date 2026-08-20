@@ -269,15 +269,87 @@ export class AgentView extends ItemView {
   private renderMessage(container: HTMLElement, m: AgentMessage): void {
     if (m.role === 'tool') {
       const toolMsg = container.createDiv({ cls: `tn-ag-msg tn-ag-tool ${m.toolOk ? 'ok' : 'err'}` });
-      toolMsg.createDiv({ cls: 'tn-ag-tool-label' }).setText(`${m.toolOk ? '🛠' : '⚠'} ${m.tool || 'тул'} ${m.toolOk ? '' : '(ошибка)'}`);
+      const head = toolMsg.createDiv({ cls: 'tn-ag-tool-head' });
+      head.createDiv({ cls: 'tn-ag-tool-label' }).setText(`${m.toolOk ? '🛠' : '⚠'} ${m.tool || 'тул'} ${m.toolOk ? '' : '(ошибка)'}`);
+      if (m.link) {
+        const a = head.createEl('a', { cls: 'tn-ag-download', attr: { href: m.link.url, target: '_blank', rel: 'noopener' } });
+        a.setText(m.link.label);
+      }
       const pre = toolMsg.createEl('pre', { cls: 'tn-ag-tool-text' });
       pre.setText(m.content);
+      this.renderCopyBtn(toolMsg, m.content);
       return;
     }
     const msg = container.createDiv({ cls: `tn-ag-msg ${m.role === 'user' ? 'user' : 'assistant'}` });
-    msg.createSpan({ cls: 'tn-ag-msg-text' }).setText(m.content);
+    const textEl = msg.createDiv({ cls: 'tn-ag-msg-text' });
+    this.renderTextWithLinks(textEl, m.content);
+    if (m.role === 'assistant') {
+      this.renderCopyBtn(msg, m.content);
+    }
     if (m.files && m.files.length > 0) {
       msg.createDiv({ cls: 'tn-ag-msg-files' }).setText(`📎 ${m.files.join(', ')}`);
+    }
+  }
+
+  private URL_RE = /https?:\/\/[^\s<>"']+/g;
+
+  /** Рендерит текст с активными ссылками (без innerHTML и без MarkdownRenderer).
+   *  Для S3-ссылок на сгенерированные файлы показывает короткий ярлык «⬇ Скачать файл …». */
+  private renderTextWithLinks(container: HTMLElement, text: string): void {
+    const parts = text.split(this.URL_RE);
+    const urls = text.match(this.URL_RE) || [];
+    let idx = 0;
+    for (const part of parts) {
+      if (part) {
+        container.createSpan().setText(part);
+      }
+      if (idx < urls.length) {
+        let url = urls[idx];
+        url = url.replace(/[.,;:!?)]+$/, '');
+        const a = container.createEl('a', { attr: { href: url, target: '_blank', rel: 'noopener' } });
+        a.setText(this.linkLabel(url));
+        idx++;
+      }
+    }
+  }
+
+  private linkLabel(url: string): string {
+    const fmtMatch = url.match(/\.(docx|xlsx|pdf|json)(?:\?|$)/);
+    if (fmtMatch) {
+      const fmt = { docx: 'Word', xlsx: 'Excel', pdf: 'PDF', json: 'JSON' }[fmtMatch[1] as 'docx' | 'xlsx' | 'pdf' | 'json'];
+      return `⬇ Скачать файл ${fmt}`;
+    }
+    if (url.length > 60) {
+      return url.slice(0, 60) + '…';
+    }
+    return url;
+  }
+
+  private renderCopyBtn(parent: HTMLElement, text: string): void {
+    const btn = parent.createEl('button', { cls: 'tn-ag-copy', attr: { title: 'Копировать' } });
+    btn.setText('⧉');
+    btn.addEventListener('click', () => { void this.copyText(text); });
+  }
+
+  private async copyText(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      new Notice('Скопировано в буфер обмена');
+    } catch (e: unknown) {
+      // fallback для окружений без clipboard API
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        new Notice('Скопировано в буфер обмена');
+      } catch (e2: unknown) {
+        new Notice(`Не удалось скопировать: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 
