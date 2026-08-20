@@ -1,6 +1,7 @@
 import type { Dialog, AgentMessage, LlmTurn } from '../types/agent';
 import type { AgentTool, AgentToolContext, AgentAttachment } from './tools-registry';
 import { SYSTEM_PROMPT_PATH, SYSTEM_PROMPT_TEMPLATE, renderSystemPrompt } from './system-prompt';
+import { loadAllRules } from './tools/rules-tools';
 import { errorMessage } from '../../../sbe-core/src/utils/errors';
 
 const DEFAULT_MAX_ITERATIONS = 15;
@@ -47,7 +48,14 @@ export class AgentEngine {
     } catch (e: unknown) {
       console.warn('LogicTEAM.007: не удалось прочитать контекст агента, использую встроенный:', errorMessage(e));
     }
-    return renderSystemPrompt(template, this.ctx, this.tools);
+    return renderSystemPrompt(template, this.ctx, this.tools) + await this.buildRulesBlock();
+  }
+
+  /** Правила пользователя из файлов правил — автоприменение в каждом запуске. */
+  private async buildRulesBlock(): Promise<string> {
+    const rules = await loadAllRules(this.ctx);
+    if (!rules) return '';
+    return `\n\nПравила пользователя (из файлов правил в yourbase/sbe_agent/rules/, обязательны к исполнению):\n${rules}`;
   }
 
   private serializeHistory(dialog: Dialog): string {

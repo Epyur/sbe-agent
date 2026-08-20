@@ -4,6 +4,7 @@ import { getEmails, getDocuments, getLimsRequests } from './tools/database-tools
 import { getTasks } from './tools/tasks-tool';
 import { addSkill, listSkills, readSkill } from './tools/skills-tools';
 import { readLocalCache } from './tools/local-cache';
+import { saveRule, listRules, readRule } from './tools/rules-tools';
 
 /** Контекст исполнения тулов (предоставляет плагин). */
 export interface AgentToolContext {
@@ -360,6 +361,44 @@ export function createTools(): AgentTool[] {
         },
       },
       execute: (ctx, args) => readSkill(ctx, args),
+    },
+    {
+      schema: {
+        name: 'save_rule',
+        description: 'Создать или обновить файл правил (AGENTS.md или другой .md) в вольте по указанию пользователя. Файлы в yourbase/sbe_agent/rules/ автоматически применяются агентом. append=true — дополнить существующий файл.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Путь в вольте, например AGENTS.md, docs/правила.md или yourbase/sbe_agent/rules/менеджмент.md. Пусто — yourbase/sbe_agent/rules/правила.md' },
+            content: { type: 'string', description: 'Текст правил (markdown)' },
+            append: { type: 'boolean', description: 'Дополнить существующий файл (вместо перезаписи)' },
+          },
+          required: ['content'],
+        },
+      },
+      execute: (ctx, args) => saveRule(ctx, args),
+    },
+    {
+      schema: {
+        name: 'list_rules',
+        description: 'Список файлов правил агента (в yourbase/sbe_agent/rules/).',
+        input_schema: { type: 'object', properties: {} },
+      },
+      execute: (ctx) => listRules(ctx),
+    },
+    {
+      schema: {
+        name: 'read_rule',
+        description: 'Прочитать файл правил (или любой .md) в контекст, чтобы следовать ему.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Путь в вольте, например AGENTS.md' },
+          },
+          required: ['path'],
+        },
+      },
+      execute: (ctx, args) => readRule(ctx, args),
     },
   ];
   return tools;
