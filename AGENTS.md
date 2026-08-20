@@ -56,6 +56,32 @@
 
 ## История работ
 
+### 2026-08-20 — v0.2.0 (mermaid/png/html, скилы, локальные кэши, редактируемый контекст)
+- **Новый серверный контейнер `agent-mermaid`** (`server_back/agent-mermaid/`): Node +
+  `@mermaid-js/mermaid-cli` + chromium (системный, `PUPPETEER_EXECUTABLE_PATH`), внутренний
+  HTTP `POST /render {code, format: svg|png}` (render.js вызывает CLI `mmdc` с
+  `-p puppeteer.json` для `--no-sandbox`). Данные не покидают сервер.
+- **agent-service**: `mermaid.go` — `renderMermaid` (клиент agent-mermaid),
+  `chartToMermaid` (bar/line → `xychart-beta`, pie → `pie`; подписи в кавычках — без них
+  лексер mermaid не принимает кириллицу), `renderHtml` (base64-изображения по S3-url,
+  inline SVG, mermaid-блоки → SVG). Новые форматы `/file/generate`: `mermaid` (PNG+SVG+.mmd,
+  ответ с `extra`), `png` (chart или mermaid), `html`. Ответ `GenerateResponse` + `extra`.
+  Деплой + E2E 14/14.
+- **Плагин**: новые тулы `create_mermaid`, `create_png`, `create_html`, `add_skill`/
+  `list_skills`/`read_skill` (jszip, GitHub-репо → `yourbase/sbe_agent/skills/`).
+- **Локальные кэши**: `get_emails`/`get_documents`/`get_lims_requests` читают ЛОКАЛЬНЫЕ кэши
+  (с полным текстом писем), при отсутствии — pull с сервера (MCP). Новый тул
+  `read_local_cache` (mailer/documents/requests/contacts/tasks/yougile): структура + записи.
+  Схема полей всех кэшей — `local-cache.ts` (CACHE_SCHEMAS) и в системном промпте.
+- **Редактируемый контекст агента**: системный промпт вынесен в
+  `yourbase/sbe_agent/agent_context.md` (создаётся при старте, редактируется в Obsidian;
+  плейсхолдеры `{{ПОЛЬЗОВАТЕЛЬ}}/{{ИСТОЧНИКИ}}/{{СХЕМА_КЭШЕЙ}}/{{ИНСТРУМЕНТЫ}}`
+  подставляются на лету). Настройка `maxIterations` (по умолчанию 15).
+- **Значительное расширение функциональности** (архитектурная веха: файлы mermaid/png/html,
+  скилы, локальные кэши, редактируемый контекст) → версия поднята до 0.2.0.
+- Версия 0.1.2 → **0.2.0** (manifest + package.json). `npx tsc --noEmit` EXIT=0;
+  `npm run build` OK (main.js ~162KB из-за jszip).
+
 ### 2026-08-20 — v0.1.1 (UI-фиксы чата, активные ссылки, агрегаты задач)
 - **Активная ссылка на скачивание**: тулы `create_*` возвращают `link`, в сообщении тула
   рисуется кнопка «⬇ Скачать файл Excel/Word/PDF/JSON» (открывает подписанный S3-URL);

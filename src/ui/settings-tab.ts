@@ -54,7 +54,21 @@ export class AgentSettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    new Setting(containerEl)
+      .setName('Максимум шагов агента')
+      .setDesc('Число вызовов инструментов за один ответ (по умолчанию 15). Увеличьте для сложных многошаговых задач.')
+      .addText(text => text
+        .setPlaceholder('15')
+        .setValue(String(this.plugin.settings.maxIterations || 15))
+        .onChange(async (value) => {
+          const n = parseInt(value, 10);
+          if (Number.isFinite(n) && n > 0 && n <= 100) {
+            this.plugin.settings.maxIterations = n;
+            await this.plugin.saveSettings();
+          }
+        }));
+
     const info = containerEl.createDiv({ cls: 'tn-ag-meta' });
-    info.setText('Источники данных и права отображаются в сайдбаре агента. Доступ к данным — по ролям соответствующих плагинов (сервер проверяет JWT).');
+    info.setText('Системный контекст агента можно редактировать в заметке yourbase/sbe_agent/agent_context.md. Источники данных и права отображаются в сайдбаре агента; доступ к данным — по ролям соответствующих плагинов.');
   }
 }

@@ -50,11 +50,12 @@ export interface AgentMessageLink {
   label: string;
 }
 
-/** Ответ agent-service на генерацию файла. */
+/** Ответ agent-service на генерацию файла. extra — доп. файлы (svg/mmd для mermaid). */
 export interface FileGenerateResponse {
   url: string;
   expires_at: string;
   file_name: string;
+  extra?: Record<string, string>;
 }
 
 /** Ответ agent-service на разбор файла. */

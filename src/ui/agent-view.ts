@@ -370,6 +370,7 @@ export class AgentView extends ItemView {
         { completeJson: (system, user, opts) => llm.completeJson(system, user, opts) },
         createTools(),
         this.plugin.buildToolContext(),
+        this.plugin.settings.maxIterations || 15,
       );
       return this.engine;
     } catch (e: unknown) {

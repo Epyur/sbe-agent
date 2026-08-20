@@ -1,8 +1,9 @@
 import type { Dialog, AgentMessage, LlmTurn } from '../types/agent';
 import type { AgentTool, AgentToolContext, AgentAttachment } from './tools-registry';
+import { SYSTEM_PROMPT_PATH, SYSTEM_PROMPT_TEMPLATE, renderSystemPrompt } from './system-prompt';
 import { errorMessage } from '../../../sbe-core/src/utils/errors';
 
-const MAX_ITERATIONS = 6;
+const DEFAULT_MAX_ITERATIONS = 15;
 
 export interface RunAgentParams {
   dialog: Dialog;
@@ -18,53 +19,33 @@ export class AgentEngine {
   private llm: { completeJson: (system: string, user: string, opts?: { model?: string }) => Promise<unknown> };
   private tools: AgentTool[];
   private ctx: AgentToolContext;
+  private maxIterations: number;
 
   constructor(
     llm: { completeJson: (system: string, user: string, opts?: { model?: string }) => Promise<unknown> },
     tools: AgentTool[],
     ctx: AgentToolContext,
+    maxIterations = DEFAULT_MAX_ITERATIONS,
   ) {
     this.llm = llm;
     this.tools = tools;
     this.ctx = ctx;
+    this.maxIterations = maxIterations;
   }
 
-  private buildSystemPrompt(): string {
-    const sources = this.ctx.getSources();
-    const sourceList = sources.length > 0
-      ? sources.map(s => `- ${s.name}${s.available ? (s.role ? ` (${s.role})` : '') : ' (нет доступа)'}`).join('\n')
-      : '- локальная база задач (всегда доступна)';
-
-    const toolLines = this.tools.map(t => JSON.stringify({
-      name: t.schema.name,
-      description: t.schema.description,
-      input_schema: t.schema.input_schema,
-    }));
-
-    return [
-      `Ты — LogicTEAM.007, корпоративный ИИ-агент компании «СБЕ ПМиПИР».`,
-      `Пользователь: ${this.ctx.getUserName() || '—'} (${this.ctx.getEmail() || '—'}).`,
-      `Доступные источники данных (по правам пользователя):`,
-      sourceList,
-      ``,
-      `Ты можешь вызывать инструменты для доступа к данным и создания файлов.`,
-      `Правила:`,
-      `1. Для ответа сначала собери нужные данные через тулы (например, get_tasks / get_emails).`,
-      `2. Для генерации документа (Word/Excel/PDF/JSON) сформируй spec и вызови create_* — файл будет доступен по кнопке в сообщении тула.`,
-      `3. Прикреплённый пользователем файл можно прочитать тулом parse_file.`,
-      `4. НЕ вставляй длинные URL (ссылки на скачивание S3) в текст ответа — скажи пользователю, что файл можно скачать кнопкой в сообщении тула, и упомяни название файла.`,
-      `5. Если данных недостаточно или прав нет — честно скажи об этом.`,
-      `6. НЕ выдумывай данные, которых не получил из тулов.`,
-      ``,
-      `Инструменты (JSON-схемы):`,
-      toolLines.join('\n'),
-      ``,
-      `Формат ответа — СТРОГО один JSON-объект одного из двух видов:`,
-      `{"type":"final","text":"<ответ пользователю>"}`,
-      `{"type":"tool_call","tool":"<имя тула>","arguments":{...}}`,
-      ``,
-      `Начинай с tool_call, если нужно собрать данные. Завершай ответом final на русском языке.`,
-    ].join('\n');
+  private async buildSystemPrompt(): Promise<string> {
+    let template = SYSTEM_PROMPT_TEMPLATE;
+    try {
+      if (await this.ctx.vaultExists(SYSTEM_PROMPT_PATH)) {
+        const fileContent = await this.ctx.readVaultText(SYSTEM_PROMPT_PATH);
+        if (fileContent && fileContent.trim()) {
+          template = fileContent;
+        }
+      }
+    } catch (e: unknown) {
+      console.warn('LogicTEAM.007: не удалось прочитать контекст агента, использую встроенный:', errorMessage(e));
+    }
+    return renderSystemPrompt(template, this.ctx, this.tools);
   }
 
   private serializeHistory(dialog: Dialog): string {
@@ -88,12 +69,12 @@ export class AgentEngine {
   }
 
   async run(params: RunAgentParams): Promise<void> {
-    const system = this.buildSystemPrompt();
+    const system = await this.buildSystemPrompt();
 
     let transcript = this.serializeHistory(params.dialog);
     const seenCalls = new Map<string, number>();
 
-    for (let i = 0; i < MAX_ITERATIONS; i++) {
+    for (let i = 0; i < this.maxIterations; i++) {
       let turn: LlmTurn;
       try {
         const parsed = await this.llm.completeJson(system, transcript, params.model ? { model: params.model } : undefined);
@@ -132,7 +113,7 @@ export class AgentEngine {
         : `[Результат тула ${turn.tool} (ошибка)] ${result.error || 'ошибка'}`}\nТвой ход (только JSON):`;
     }
 
-    params.onAssistant('Превышено число шагов агента (6). Попробуйте сформулировать задачу уже. Более точный вопрос ускорит работу.');
+    params.onAssistant(`Превышено число шагов агента (${this.maxIterations}). Попробуйте сформулировать задачу более конкретно, либо увеличьте лимит шагов в настройках агента.`);
   }
 
   private normalizeTurn(parsed: unknown): LlmTurn {

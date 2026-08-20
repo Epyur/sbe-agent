@@ -1,42 +1,14 @@
 import type { AgentToolContext } from '../tools-registry';
 import type { ToolCallResult } from '../../types/agent';
 import { request, assertOk } from '../http';
+import { readLocalList } from './local-cache';
 import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 
-interface EmailItem {
-  id: number;
-  number?: string;
-  topic?: string;
-  text?: string;
-  author?: string;
-  direction_name?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
-interface DocItem {
-  id: number;
-  title?: string;
-  doc_type?: string;
-  curator_email?: string;
-  completed?: boolean;
-  updated_at?: string;
-}
-
-interface LimsRequestItem {
-  id: number;
-  customer_number?: string;
-  lab_number?: string;
-  status?: string;
-  updated_at?: string;
-}
-
-/** Общий pull из plugin-service + фильтр по строке + limit. */
+/** Общий pull из plugin-service + фильтр по строке + limit (fallback, если нет локального кэша). */
 async function pullItems(
   ctx: AgentToolContext,
   appId: 'mailer' | 'documents' | 'lab',
   listKey: string,
-  filterKeys: string[],
 ): Promise<Record<string, unknown>[]> {
   const token = await ctx.getToken(appId);
   const res = await request({
@@ -50,17 +22,23 @@ async function pullItems(
   return items as Record<string, unknown>[];
 }
 
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
+
 function matchesQuery(item: Record<string, unknown>, query: string): boolean {
   if (!query) return true;
   const q = query.toLowerCase();
-  return Object.entries(item).some(([k, v]) => {
-    if (typeof v !== 'string') return false;
-    return k !== 'text' && v.toLowerCase().includes(q);
-  });
+  return Object.entries(item).some(([, v]) => typeof v === 'string' && v.toLowerCase().includes(q));
 }
 
 function limitItems(items: Record<string, unknown>[], limit: number): Record<string, unknown>[] {
   return items.slice(0, Math.max(1, Math.min(limit || 20, 200)));
+}
+
+function truncate(v: string, max: number): string {
+  if (v.length <= max) return v;
+  return v.slice(0, max) + '\n…';
 }
 
 export async function getEmails(
@@ -71,27 +49,36 @@ export async function getEmails(
     const query = String(args.query || '').trim();
     const limit = Number(args.limit) || 20;
     const direction = String(args.direction || '').trim();
-    let items = await pullItems(ctx, 'mailer', 'emails', []);
+
+    let source = 'server';
+    let items: Record<string, unknown>[] | null = null;
+    const local = await readLocalList(ctx, 'mailer');
+    if (local) {
+      source = 'local';
+      items = local.items;
+    } else {
+      items = await pullItems(ctx, 'mailer', 'emails');
+    }
+
     if (direction) {
-      items = items.filter(i => {
-        const name = String(i.direction_name || '');
-        const num = String(i.direction_id || '');
-        return name.toLowerCase().includes(direction.toLowerCase()) || num === direction;
-      });
+      items = items.filter(i => str(i.direction_name).toLowerCase().includes(direction.toLowerCase()));
     }
     items = items.filter(i => matchesQuery(i, query));
+
     const picked = limitItems(items, limit).map(i => ({
       id: i.id,
       number: i.number,
-      topic: i.topic,
+      topic: str(i.subject || i.topic),
       author: i.author,
       direction_name: i.direction_name,
-      created_at: i.created_at,
+      date: str(i.date || i.created_at),
+      text: truncate(str(i.text), 3000),
     }));
+
     return {
       ok: true,
-      summary: `Письма: найдено ${items.length}, показано ${picked.length}.`,
-      data: { total: items.length, items: picked },
+      summary: `Письма (источник: ${source}, ${local ? local.path : 'сервер'}): найдено ${items.length}, показано ${picked.length}.`,
+      data: { source, total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
@@ -105,20 +92,35 @@ export async function getDocuments(
   try {
     const query = String(args.query || '').trim();
     const limit = Number(args.limit) || 20;
-    let items = await pullItems(ctx, 'documents', 'documents', []);
+
+    let source = 'server';
+    let items: Record<string, unknown>[] | null = null;
+    const local = await readLocalList(ctx, 'documents');
+    if (local) {
+      source = 'local';
+      items = local.items;
+    } else {
+      items = await pullItems(ctx, 'documents', 'documents');
+    }
+
     items = items.filter(i => matchesQuery(i, query));
     const picked = limitItems(items, limit).map(i => ({
       id: i.id,
       title: i.title,
       doc_type: i.doc_type,
       curator_email: i.curator_email,
+      deadline: i.deadline,
+      file_name: i.file_name,
+      link_url: i.link_url,
+      parent_id: i.parent_id,
       completed: i.completed,
       updated_at: i.updated_at,
     }));
+
     return {
       ok: true,
-      summary: `Документы: найдено ${items.length}, показано ${picked.length}.`,
-      data: { total: items.length, items: picked },
+      summary: `Документы (источник: ${source}): найдено ${items.length}, показано ${picked.length}.`,
+      data: { source, total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
@@ -132,9 +134,19 @@ export async function getLimsRequests(
   try {
     const status = String(args.status || '').trim();
     const limit = Number(args.limit) || 20;
-    let items = await pullItems(ctx, 'lab', 'requests', []);
+
+    let source = 'server';
+    let items: Record<string, unknown>[] | null = null;
+    const local = await readLocalList(ctx, 'requests');
+    if (local) {
+      source = 'local';
+      items = local.items;
+    } else {
+      items = await pullItems(ctx, 'lab', 'requests');
+    }
+
     if (status) {
-      items = items.filter(i => String(i.status || '').toLowerCase() === status.toLowerCase());
+      items = items.filter(i => str(i.status).toLowerCase() === status.toLowerCase());
     }
     const picked = limitItems(items, limit).map(i => ({
       id: i.id,
@@ -143,14 +155,13 @@ export async function getLimsRequests(
       status: i.status,
       updated_at: i.updated_at,
     }));
+
     return {
       ok: true,
-      summary: `Заявки ЛИМС: найдено ${items.length}, показано ${picked.length}.`,
-      data: { total: items.length, items: picked },
+      summary: `Заявки ЛИМС (источник: ${source}): найдено ${items.length}, показано ${picked.length}.`,
+      data: { source, total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
   }
 }
-
-export type { EmailItem, DocItem, LimsRequestItem };

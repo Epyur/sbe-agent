@@ -1,13 +1,15 @@
 import type { AgentToolContext } from '../tools-registry';
-import type { ToolCallResult } from '../../types/agent';
+import type { ToolCallResult, FileGenerateResponse } from '../../types/agent';
 import { request, assertOk, buildMultipart } from '../http';
 import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 
-/** Генерация файла через agent-service → S3 → ссылка на скачивание. */
+/** Генерация файла через agent-service → S3 → ссылка на скачивание.
+ *  format: docx|xlsx|pdf|json|mermaid|png|html; label — человекочитаемое имя формата. */
 export async function generateFile(
   ctx: AgentToolContext,
-  format: 'docx' | 'xlsx' | 'pdf' | 'json',
+  format: string,
   spec: Record<string, unknown>,
+  label: string,
 ): Promise<ToolCallResult> {
   try {
     const token = await ctx.getToken('agent');
@@ -18,13 +20,17 @@ export async function generateFile(
       body: JSON.stringify({ format, spec }),
     }, 120000);
     assertOk(res, 'агент');
-    const data = JSON.parse(res.text) as { url: string; expires_at: string; file_name: string };
-    const formatLabel = { docx: 'Word', xlsx: 'Excel', pdf: 'PDF', json: 'JSON' }[format];
+    const data = JSON.parse(res.text) as FileGenerateResponse;
     const until = new Date(data.expires_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    let summary = `Файл **${data.file_name}** (${label}) сформирован. Скачивание доступно до ${until}.`;
+    if (data.extra) {
+      if (data.extra.svg) summary += `\nSVG-версия: ${data.extra.svg}`;
+      if (data.extra.mmd) summary += `\nИсходник mermaid (.mmd): ${data.extra.mmd}`;
+    }
     return {
       ok: true,
-      summary: `Файл **${data.file_name}** (${formatLabel}) сформирован. Скачивание доступно до ${until}.`,
-      link: { url: data.url, label: `⬇ Скачать файл ${formatLabel}` },
+      summary,
+      link: { url: data.url, label: `⬇ Скачать файл ${label}` },
       data,
     };
   } catch (e: unknown) {

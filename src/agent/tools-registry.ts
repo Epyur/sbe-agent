@@ -2,6 +2,8 @@ import type { AgentToolSchema, ToolCallResult, SourceAvailability } from '../typ
 import { generateFile, parseFile } from './tools/file-tools';
 import { getEmails, getDocuments, getLimsRequests } from './tools/database-tools';
 import { getTasks } from './tools/tasks-tool';
+import { addSkill, listSkills, readSkill } from './tools/skills-tools';
+import { readLocalCache } from './tools/local-cache';
 
 /** Контекст исполнения тулов (предоставляет плагин). */
 export interface AgentToolContext {
@@ -11,6 +13,9 @@ export interface AgentToolContext {
   getUserName: () => string;
   getSources: () => SourceAvailability[];
   readVaultText: (path: string) => Promise<string>;
+  writeVaultFile: (path: string, data: ArrayBuffer | string) => Promise<void>;
+  listVaultDir: (path: string) => Promise<string[]>;
+  vaultExists: (path: string) => Promise<boolean>;
 }
 
 export interface AgentAttachment {
@@ -64,7 +69,7 @@ export function createTools(): AgentTool[] {
         if (!args.title || !args.sections) {
           return { ok: false, summary: '', error: 'Требуются поля title и sections.' };
         }
-        return generateFile(ctx, 'docx', args as Record<string, unknown>);
+        return generateFile(ctx, 'docx', args as Record<string, unknown>, 'Word');
       },
     },
     {
@@ -93,7 +98,7 @@ export function createTools(): AgentTool[] {
         if (!args.sheets) {
           return { ok: false, summary: '', error: 'Требуется поле sheets.' };
         }
-        return generateFile(ctx, 'xlsx', args as Record<string, unknown>);
+        return generateFile(ctx, 'xlsx', args as Record<string, unknown>, 'Excel');
       },
     },
     {
@@ -113,7 +118,7 @@ export function createTools(): AgentTool[] {
         if (!args.title || !args.sections) {
           return { ok: false, summary: '', error: 'Требуются поля title и sections.' };
         }
-        return generateFile(ctx, 'pdf', args as Record<string, unknown>);
+        return generateFile(ctx, 'pdf', args as Record<string, unknown>, 'PDF');
       },
     },
     {
@@ -132,7 +137,7 @@ export function createTools(): AgentTool[] {
         if (args.data === undefined || args.data === null) {
           return { ok: false, summary: '', error: 'Требуется поле data.' };
         }
-        return generateFile(ctx, 'json', { data: args.data });
+        return generateFile(ctx, 'json', { data: args.data }, 'JSON');
       },
     },
     {
@@ -218,6 +223,143 @@ export function createTools(): AgentTool[] {
         },
       },
       execute: (ctx, args) => getTasks(ctx, args),
+    },
+    {
+      schema: {
+        name: 'read_local_cache',
+        description: 'Прочитать любой ЛОКАЛЬНЫЙ кэш вольта: mailer (письма с текстом), documents (документы), requests (заявки), contacts (контакты), tasks (задачи), yougile (legacy монолита). Возвращает структуру кэша (ключи и количество) и записи основного списка с фильтром по query.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            cache: { type: 'string', enum: ['mailer', 'documents', 'requests', 'contacts', 'tasks', 'yougile'] },
+            query: { type: 'string', description: 'Поиск по строкам записей' },
+            limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
+          },
+          required: ['cache'],
+        },
+      },
+      execute: (ctx, args) => readLocalCache(ctx, args),
+    },
+    {
+      schema: {
+        name: 'create_mermaid',
+        description: 'Сформировать mermaid-диаграмму: PNG + SVG + .mmd исходник. Возвращаются ссылки на скачивание (PNG — основная, SVG и .mmd — в extra).',
+        input_schema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Название файла (без расширения)' },
+            code: { type: 'string', description: 'Mermaid-код диаграммы (graph TD/flowchart/sequenceDiagram/pie/xychart-beta и т.п.)' },
+          },
+          required: ['title', 'code'],
+        },
+      },
+      execute: async (ctx, args) => {
+        if (!args.title || !args.code) {
+          return { ok: false, summary: '', error: 'Требуются поля title и code.' };
+        }
+        return generateFile(ctx, 'mermaid', args as Record<string, unknown>, 'Mermaid (PNG)');
+      },
+    },
+    {
+      schema: {
+        name: 'create_png',
+        description: 'Сгенерировать PNG-изображение: график из данных (chart: bar/line/pie — столбики, линии, круговая) ИЛИ диаграмма по mermaid-коду (mermaid). Возвращается ссылка на скачивание PNG.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            chart: {
+              type: 'object',
+              description: 'График из данных',
+              properties: {
+                type: { type: 'string', enum: ['bar', 'line', 'pie'] },
+                title: { type: 'string' },
+                data: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'number' } } } },
+              },
+            },
+            mermaid: { type: 'string', description: 'Либо mermaid-код диаграммы для рендера в PNG' },
+          },
+        },
+      },
+      execute: async (ctx, args) => {
+        if (!args.chart && !args.mermaid) {
+          return { ok: false, summary: '', error: 'Требуется chart (данные графика) или mermaid (код диаграммы).' };
+        }
+        const spec = args.chart ? { chart: args.chart } : { mermaid: args.mermaid };
+        return generateFile(ctx, 'png', spec, 'PNG');
+      },
+    },
+    {
+      schema: {
+        name: 'create_html',
+        description: 'Сформировать самодостаточный HTML-файл: текст/разделы, встроенные base64-изображения (url — ссылка на PNG от create_png/create_mermaid), inline SVG и mermaid-диаграммы (рендерятся сервером и встраиваются как SVG). Возвращается ссылка на скачивание HTML.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            sections: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  heading: { type: 'string' },
+                  paragraphs: { type: 'array', items: { type: 'string' } },
+                  table: { type: 'object', properties: { headers: { type: 'array', items: { type: 'string' } }, rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } } } },
+                },
+              },
+            },
+            images: {
+              type: 'array',
+              items: { type: 'object', properties: { url: { type: 'string', description: 'Ссылка на PNG (от create_png/create_mermaid)' }, caption: { type: 'string' } } },
+            },
+            svgs: { type: 'array', items: { type: 'string' }, description: 'Inline SVG-строки' },
+            mermaid_blocks: { type: 'array', items: { type: 'string' }, description: 'Mermaid-код, будет отрендерен в SVG и встроен' },
+          },
+          required: ['title'],
+        },
+      },
+      execute: async (ctx, args) => {
+        if (!args.title) {
+          return { ok: false, summary: '', error: 'Требуется title.' };
+        }
+        return generateFile(ctx, 'html', args as Record<string, unknown>, 'HTML');
+      },
+    },
+    {
+      schema: {
+        name: 'add_skill',
+        description: 'Установить скил(ы) из GitHub-репозитория в вольт (аналог `npx skills add <repo> --skill <name>`). Скил сохраняется в yourbase/sbe_agent/skills/.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            repo_url: { type: 'string', description: 'URL GitHub-репозитория, например https://github.com/mattpocock/skills' },
+            skill_path: { type: 'string', description: 'Имя скила (подпапки), если нужно установить только его (аналог --skill). Пусто — установить весь репозиторий.' },
+          },
+          required: ['repo_url'],
+        },
+      },
+      execute: (ctx, args) => addSkill(ctx, args),
+    },
+    {
+      schema: {
+        name: 'list_skills',
+        description: 'Список установленных скилов (имя и описание из SKILL.md). Вызывай, когда задача похожа на известную методику (брейнсторм, код-ревью, интервью и т.п.) — возможно, есть подходящий скил.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      execute: (ctx) => listSkills(ctx),
+    },
+    {
+      schema: {
+        name: 'read_skill',
+        description: 'Загрузить инструкции установленного скила (SKILL.md + файлы) в контекст, чтобы следовать им при выполнении задачи.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Имя скила (из list_skills)' },
+          },
+          required: ['name'],
+        },
+      },
+      execute: (ctx, args) => readSkill(ctx, args),
     },
   ];
   return tools;

@@ -6,6 +6,7 @@ import { publishService, unpublishService, getService } from '../../sbe-core/src
 import type { SbeAgentApi, SbeLlmApi, SbeApstoreApi } from '../../sbe-core/src/types';
 import type { SourceAvailability } from './types/agent';
 import { AgentToolContext, AgentAttachment, createTools } from './agent/tools-registry';
+import { SYSTEM_PROMPT_PATH, SYSTEM_PROMPT_TEMPLATE } from './agent/system-prompt';
 import { request, assertOk } from './agent/http';
 import { errorMessage } from '../../sbe-core/src/utils/errors';
 
@@ -13,12 +14,15 @@ export interface SbeAgentSettings {
   apiUrl: string;
   userName: string;
   model: string;
+  /** Максимальное число шагов агента (вызовов тулов за один ответ). */
+  maxIterations: number;
 }
 
 const DEFAULT_SETTINGS: SbeAgentSettings = {
   apiUrl: 'https://epyur.fvds.ru',
   userName: '',
   model: '',
+  maxIterations: 15,
 };
 
 const SOURCE_DEFS: Array<{ appId: string; name: string }> = [
@@ -37,6 +41,7 @@ export default class SbeAgentPlugin extends Plugin {
     await this.loadSettings();
     this.agentDb = new AgentDatabase(this.app);
     await this.agentDb.init();
+    await this.ensureSystemPromptFile();
 
     try {
       const apstore = await getService('sbe-apstore');
@@ -104,7 +109,63 @@ export default class SbeAgentPlugin extends Plugin {
       getUserName: () => this.settings.userName,
       getSources: () => this.sources,
       readVaultText: async (path: string) => this.app.vault.adapter.read(path),
+      writeVaultFile: async (path: string, data: ArrayBuffer | string) => {
+        await this.ensureVaultDir(path.substring(0, path.lastIndexOf('/')));
+        const adapter = this.app.vault.adapter;
+        if (typeof data === 'string') {
+          await adapter.write(path, data);
+        } else {
+          await adapter.writeBinary(path, data);
+        }
+      },
+      listVaultDir: async (path: string) => {
+        const adapter = this.app.vault.adapter;
+        try {
+          if (!(await adapter.exists(path))) return [];
+          const listed = await adapter.list(path);
+          return listed.files;
+        } catch (e: unknown) {
+          console.warn('LogicTEAM.007: listVaultDir error:', errorMessage(e));
+          return [];
+        }
+      },
+      vaultExists: async (path: string) => {
+        try {
+          return await this.app.vault.adapter.exists(path);
+        } catch (e: unknown) {
+          console.warn('LogicTEAM.007: vaultExists error:', errorMessage(e));
+          return false;
+        }
+      },
     };
+  }
+
+  /** Создаёт файл контекста агента в вольте, если его ещё нет (редактируется пользователем). */
+  private async ensureSystemPromptFile(): Promise<void> {
+    const ctx = this.buildToolContext();
+    try {
+      if (!(await ctx.vaultExists(SYSTEM_PROMPT_PATH))) {
+        await ctx.writeVaultFile(SYSTEM_PROMPT_PATH, SYSTEM_PROMPT_TEMPLATE);
+        console.log(`LogicTEAM.007: создан редактируемый контекст агента: ${SYSTEM_PROMPT_PATH}`);
+      }
+    } catch (e: unknown) {
+      console.warn('LogicTEAM.007: не удалось создать контекст агента:', errorMessage(e));
+    }
+  }
+
+  private async ensureVaultDir(dirPath: string): Promise<void> {    const adapter = this.app.vault.adapter;
+    const parts = (dirPath || '').split('/').filter(Boolean);
+    let cur = '';
+    for (const part of parts) {
+      cur = cur ? `${cur}/${part}` : part;
+      try {
+        if (!(await adapter.exists(cur))) {
+          await adapter.mkdir(cur);
+        }
+      } catch (e: unknown) {
+        console.warn('LogicTEAM.007: ensureVaultDir error:', errorMessage(e));
+      }
+    }
   }
 
   /** LLM из центра sbe-llm (completeJson для JSON-протокола тулов). */

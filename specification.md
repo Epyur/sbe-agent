@@ -26,19 +26,30 @@
 | `create_xlsx` | `{sheets:[{name, headers[], rows[]}]}` | ссылка на .xlsx |
 | `create_pdf` | `{title, sections[]}` | ссылка на .pdf |
 | `create_json` | `{data}` | ссылка на .json |
+| `create_mermaid` | `{title, code}` | PNG + SVG + .mmd (extra) |
+| `create_png` | `{chart:{type: bar\|line\|pie, title, data:[{label,value}]}}` или `{mermaid}` | ссылка на PNG |
+| `create_html` | `{title, sections[], images:[{url, caption}], svgs[], mermaid_blocks[]}` | ссылка на HTML |
 | `parse_file` | прикреплённый файл | `{kind, text\|sheets\|data}` |
 | `get_emails` | `{query, direction, limit}` | письма (mailer pull) |
 | `get_documents` | `{query, limit}` | документы (documents pull) |
 | `get_lims_requests` | `{status, limit}` | заявки ЛИМС (lab pull) |
-| `get_tasks` | `{query, project, completed, limit}` | задачи (локальный кэш) |
+| `get_tasks` | `{query, project, completed, limit}` | задачи + агрегаты (локальный кэш) |
+| `add_skill` | `{repo_url, skill_path?}` | установка скила из GitHub в `yourbase/sbe_agent/skills/` |
+| `list_skills` | — | список скилов (name/description) |
+| `read_skill` | `{name}` | SKILL.md в контекст агента |
 
 ## agent-service
 
 ### POST /api/agent/file/generate
-- Тело: `{"format": "docx|xlsx|pdf|json", "spec": {title, sections[], sheets[], data}}`.
+- Тело: `{"format": "docx|xlsx|pdf|json|mermaid|png|html", "spec": {…}}`.
 - Рендер → S3 `sbe-agent/agent/{uuid}.{ext}` (rclone) → `rclone link --expire 48h`.
-- Ответ: `{"url", "expires_at", "file_name"}`.
-- `spec.sections[].table = {headers, rows}`; `spec.data` — для json.
+- Ответ: `{"url", "expires_at", "file_name", "extra?"}` (`extra` — svg/mmd для `mermaid`).
+- `mermaid`: `spec.code` → PNG + SVG + .mmd (три файла).
+- `png`: `spec.chart` (bar/line → mermaid `xychart-beta`, pie → `pie`; подписи в кавычках)
+  или `spec.mermaid` → PNG.
+- `html`: `spec.title/sections/images[{url,caption}]/svgs[]/mermaid_blocks[]` —
+  base64-изображения (url загружается сервером только с `s3.firstvds.ru`), inline SVG,
+  mermaid-блоки рендерятся в SVG и встраиваются (HTML самодостаточен, без CDN).
 
 ### POST /api/agent/file/parse
 - `multipart/form-data`, поле `file`. Извлечение:
