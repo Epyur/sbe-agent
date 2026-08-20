@@ -1,0 +1,19 @@
+{
+  "name": "sbe-agent",
+  "version": "0.1.0",
+  "description": "Универсальный LLM-агент: MCP-инструменты (создание/чтение Word/Excel/JSON/PDF через agent-service и S3), чтение баз (письма, документы, ЛИМС) по правам пользователя, локальная база задач.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
+    "obsidian": "^1.11.4",
+    "typescript": "^5.8.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

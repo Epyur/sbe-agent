@@ -1,0 +1,875 @@
+/* SBE design tokens — выровнены со словарём TN Life UI kit.
+ * Источник словаря: C:\Users\adm\Yandex.Disk\Загрузки\doc\uikit\variables.css (+ variables-dark.css).
+ *
+ * Слои:
+ *   1. `--tn-*` — примитивы (обратная совместимость; имена и значения НЕ менять).
+ *   2. Сырая палитра TN Life (`--tn-palette-*`) — ключевые ступени neutral/red/blue/green/orange.
+ *   3. Семантические токены TN Life (`--content-*`, `--background-*`, `--border-*`) —
+ *      точные имена из Life; в Obsidian разрешаются через палитру, в Life — перекрываются его токенами.
+ *   4. `.tn-dark-theme` — значения тёмной темы из variables-dark.css (opt-in).
+ *
+ * Правило: новые компоненты SBE должны использовать семантические токены (слой 3),
+ * а не примитивы, чтобы перенос в Vue (TN Life) был механическим.
+ */
+
+/* Слой 1. Примитивы (обратная совместимость) */
+:root {
+  --tn-bg: #f4f6fa;
+  --tn-card: #ffffff;
+  --tn-border: #e3e8f0;
+  --tn-text: #1c2433;
+  --tn-muted: #67748e;
+  --tn-brand: #e01f26;
+  --tn-brand-dark: #c21820;
+  --tn-sidebar: #171e2b;
+  --tn-sidebar-text: #aab3c5;
+  --tn-sidebar-active: #e01f26;
+  --tn-ok: #16a34a;
+  --tn-warn: #d97706;
+  --tn-err: #dc2626;
+  --tn-radius: 10px;
+}
+
+/* Слой 2. Сырая палитра TN Life (ключевые ступени) */
+:root {
+  --tn-palette-neutral-white: #ffffff;
+  --tn-palette-neutral-black: #000000;
+  --tn-palette-neutral-5: #fcfcfd;
+  --tn-palette-neutral-10: #f9f9fa;
+  --tn-palette-neutral-15: #f3f5f7;
+  --tn-palette-neutral-20: #e6e8ed;
+  --tn-palette-neutral-25: #d7dae1;
+  --tn-palette-neutral-30: #c8ccd6;
+  --tn-palette-neutral-35: #bcc1ce;
+  --tn-palette-neutral-40: #abb0c1;
+  --tn-palette-neutral-45: #9ca3b6;
+  --tn-palette-neutral-50: #8890a7;
+  --tn-palette-neutral-55: #7a879d;
+  --tn-palette-neutral-60: #667387;
+  --tn-palette-neutral-65: #4e5867;
+  --tn-palette-neutral-70: #444c59;
+  --tn-palette-neutral-75: #3b434f;
+  --tn-palette-neutral-80: #2d333c;
+  --tn-palette-neutral-85: #292f37;
+  --tn-palette-neutral-90: #262a32;
+  --tn-palette-neutral-95: #22262d;
+  --tn-palette-neutral-100: #1e2228;
+
+  --tn-palette-red-55: #eb4f56;
+  --tn-palette-red-60: #e11b11;
+  --tn-palette-red-65: #ae1603;
+  --tn-palette-red-70: #961500;
+  --tn-palette-red-75: #841500;
+  --tn-palette-red-80: #670f00;
+
+  --tn-palette-blue-50: #2b91ff;
+  --tn-palette-blue-55: #1284ff;
+  --tn-palette-blue-60: #006ee4;
+  --tn-palette-blue-70: #004998;
+  --tn-palette-blue-75: #004186;
+
+  --tn-palette-green-50: #00a73b;
+  --tn-palette-green-55: #009c37;
+
+  --tn-palette-orange-40: #ff8a0c;
+}
+
+/* Слой 3. Семантические токены TN Life (светлая тема) */
+:root {
+  /* content */
+  --content-primary-a-enabled: var(--tn-palette-neutral-100);
+  --content-primary-a-hover: var(--tn-palette-neutral-70);
+  --content-primary-a-pressed: var(--tn-palette-neutral-100);
+  --content-primary-a-disabled: var(--tn-palette-neutral-35);
+  --content-primary-b-enabled: var(--tn-palette-neutral-white);
+  --content-primary-b-hover: var(--tn-palette-neutral-white);
+  --content-primary-b-pressed: var(--tn-palette-neutral-white);
+  --content-primary-b-disabled: var(--tn-palette-neutral-35);
+  --content-secondary-enabled: var(--tn-palette-neutral-60);
+  --content-secondary-hover: var(--tn-palette-neutral-55);
+  --content-secondary-pressed: var(--tn-palette-neutral-65);
+  --content-secondary-disabled: var(--tn-palette-neutral-35);
+  --content-tertiary-enabled: var(--tn-palette-neutral-45);
+  --content-tertiary-hover: var(--tn-palette-neutral-40);
+  --content-tertiary-pressed: var(--tn-palette-neutral-55);
+  --content-tertiary-disabled: var(--tn-palette-neutral-35);
+  --content-accent-enabled: var(--tn-palette-red-60);
+  --content-accent-hover: var(--tn-palette-red-65);
+  --content-accent-pressed: var(--tn-palette-red-70);
+  --content-accent-disabled: var(--tn-palette-neutral-35);
+  --content-system-positive: var(--tn-palette-green-55);
+  --content-system-negative: var(--tn-palette-red-60);
+  --content-system-warning: var(--tn-palette-orange-40);
+  --content-system-neutral: var(--tn-palette-neutral-65);
+  --content-action-enabled: var(--tn-palette-blue-55);
+  --content-action-hover: var(--tn-palette-blue-60);
+  --content-action-pressed: var(--tn-palette-blue-75);
+  --content-action-disabled: var(--tn-palette-neutral-35);
+
+  /* background */
+  --background-primary-a-enabled: var(--tn-palette-neutral-white);
+  --background-primary-a-hover: var(--tn-palette-neutral-5);
+  --background-primary-a-pressed: var(--tn-palette-neutral-10);
+  --background-primary-a-disabled: var(--tn-palette-neutral-10);
+  --background-primary-b-enabled: var(--tn-palette-neutral-100);
+  --background-primary-b-hover: var(--tn-palette-neutral-70);
+  --background-primary-b-pressed: var(--tn-palette-neutral-black);
+  --background-primary-b-disabled: var(--tn-palette-neutral-10);
+  --background-secondary-a-enabled: var(--tn-palette-neutral-15);
+  --background-secondary-a-hover: var(--tn-palette-neutral-20);
+  --background-secondary-a-pressed: var(--tn-palette-neutral-25);
+  --background-secondary-a-disabled: var(--tn-palette-neutral-10);
+  --background-secondary-enabled: var(--background-secondary-a-enabled);
+  --background-secondary-hover: var(--background-secondary-a-hover);
+  --background-secondary-pressed: var(--background-secondary-a-pressed);
+  --background-secondary-disabled: var(--background-secondary-a-disabled);
+  --background-tertiary-enabled: var(--tn-palette-neutral-20);
+  --background-tertiary-hover: var(--tn-palette-neutral-25);
+  --background-tertiary-pressed: var(--tn-palette-neutral-30);
+  --background-tertiary-disabled: var(--tn-palette-neutral-10);
+  --background-accent-enabled: var(--tn-palette-red-60);
+  --background-accent-hover: var(--tn-palette-red-65);
+  --background-accent-pressed: var(--tn-palette-red-70);
+  --background-accent-disabled: var(--tn-palette-neutral-10);
+
+  /* border */
+  --border-primary-a-enabled: var(--tn-palette-neutral-100);
+  --border-primary-a-hover: var(--tn-palette-neutral-70);
+  --border-primary-a-pressed: var(--tn-palette-neutral-100);
+  --border-primary-a-disabled: var(--tn-palette-neutral-20);
+  --border-primary-enabled: var(--border-primary-a-enabled);
+  --border-primary-hover: var(--border-primary-a-hover);
+  --border-primary-pressed: var(--border-primary-a-pressed);
+  --border-primary-disabled: var(--border-primary-a-disabled);
+  --border-secondary-enabled: var(--tn-palette-neutral-25);
+  --border-secondary-hover: var(--tn-palette-neutral-30);
+  --border-secondary-pressed: var(--tn-palette-neutral-35);
+  --border-secondary-disabled: var(--tn-palette-neutral-20);
+  --border-accent-enabled: var(--tn-palette-red-60);
+  --border-accent-hover: var(--tn-palette-red-65);
+  --border-accent-pressed: var(--tn-palette-red-70);
+  --border-accent-disabled: var(--tn-palette-neutral-20);
+}
+
+/* Слой 4. Тёмная тема (opt-in: класс .tn-dark-theme на body/контейнере) */
+.tn-dark-theme {
+  --content-primary-a-enabled: var(--tn-palette-neutral-15);
+  --content-primary-a-hover: var(--tn-palette-neutral-30);
+  --content-primary-a-pressed: var(--tn-palette-neutral-25);
+  --content-primary-a-disabled: var(--tn-palette-neutral-75);
+  --content-primary-b-enabled: var(--tn-palette-neutral-15);
+  --content-primary-b-hover: var(--tn-palette-neutral-30);
+  --content-primary-b-pressed: var(--tn-palette-neutral-25);
+  --content-primary-b-disabled: var(--tn-palette-neutral-75);
+  --content-secondary-enabled: var(--tn-palette-neutral-60);
+  --content-secondary-hover: var(--tn-palette-neutral-65);
+  --content-secondary-pressed: var(--tn-palette-neutral-75);
+  --content-secondary-disabled: var(--tn-palette-neutral-75);
+  --content-tertiary-enabled: var(--tn-palette-neutral-65);
+  --content-tertiary-hover: var(--tn-palette-neutral-55);
+  --content-tertiary-pressed: var(--tn-palette-neutral-70);
+  --content-tertiary-disabled: var(--tn-palette-neutral-75);
+  --content-accent-enabled: var(--tn-palette-red-65);
+  --content-accent-hover: var(--tn-palette-red-75);
+  --content-accent-pressed: var(--tn-palette-red-80);
+  --content-accent-disabled: var(--tn-palette-neutral-75);
+  --content-system-neutral: var(--tn-palette-neutral-30);
+  --content-action-enabled: var(--tn-palette-blue-50);
+  --content-action-hover: var(--tn-palette-blue-60);
+  --content-action-pressed: var(--tn-palette-blue-70);
+  --content-action-disabled: var(--tn-palette-neutral-75);
+
+  --background-primary-a-enabled: var(--tn-palette-neutral-100);
+  --background-primary-a-hover: var(--tn-palette-neutral-95);
+  --background-primary-a-pressed: var(--tn-palette-neutral-90);
+  --background-primary-a-disabled: var(--tn-palette-neutral-90);
+  --background-primary-b-enabled: var(--tn-palette-neutral-40);
+  --background-primary-b-hover: var(--tn-palette-neutral-50);
+  --background-primary-b-pressed: var(--tn-palette-neutral-55);
+  --background-primary-b-disabled: var(--tn-palette-neutral-90);
+  --background-secondary-a-enabled: var(--tn-palette-neutral-90);
+  --background-secondary-a-hover: var(--tn-palette-neutral-85);
+  --background-secondary-a-pressed: var(--tn-palette-neutral-95);
+  --background-secondary-a-disabled: var(--tn-palette-neutral-90);
+  --background-secondary-enabled: var(--background-secondary-a-enabled);
+  --background-secondary-hover: var(--background-secondary-a-hover);
+  --background-secondary-pressed: var(--background-secondary-a-pressed);
+  --background-secondary-disabled: var(--background-secondary-a-disabled);
+  --background-tertiary-enabled: var(--tn-palette-neutral-80);
+  --background-tertiary-hover: var(--tn-palette-neutral-75);
+  --background-tertiary-pressed: var(--tn-palette-neutral-80);
+  --background-tertiary-disabled: var(--tn-palette-neutral-90);
+  --background-accent-enabled: var(--tn-palette-red-65);
+  --background-accent-hover: var(--tn-palette-red-75);
+  --background-accent-pressed: var(--tn-palette-red-80);
+  --background-accent-disabled: var(--tn-palette-neutral-90);
+
+  --border-primary-a-enabled: var(--tn-palette-neutral-white);
+  --border-primary-a-hover: var(--tn-palette-neutral-20);
+  --border-primary-a-pressed: var(--tn-palette-neutral-25);
+  --border-primary-a-disabled: var(--tn-palette-neutral-90);
+  --border-primary-enabled: var(--border-primary-a-enabled);
+  --border-primary-hover: var(--border-primary-a-hover);
+  --border-primary-pressed: var(--border-primary-a-pressed);
+  --border-primary-disabled: var(--border-primary-a-disabled);
+  --border-secondary-enabled: var(--tn-palette-neutral-80);
+  --border-secondary-hover: var(--tn-palette-neutral-75);
+  --border-secondary-pressed: var(--tn-palette-neutral-75);
+  --border-secondary-disabled: var(--tn-palette-neutral-80);
+  --border-accent-disabled: var(--tn-palette-neutral-90);
+}
+
+.tn-dark-theme_no-transition * {
+  transition: none !important;
+}
+/* SBE design system — компоненты в стилистике tn-life-ui. Все классы с префиксом tn-. */
+
+.tn-card {
+  background: var(--tn-card);
+  border: 1px solid var(--tn-border);
+  border-radius: var(--tn-radius);
+  padding: 20px;
+  margin-bottom: 18px;
+}
+
+.tn-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.tn-card-head h3 { font-size: 15px; margin: 0; }
+
+.tn-muted { color: var(--tn-muted); }
+.tn-empty {
+  text-align: center;
+  color: var(--tn-muted);
+  padding: 18px;
+}
+
+/* ---------- Кнопки ---------- */
+.tn-btn {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #fff;
+  transition: all .15s;
+}
+.tn-btn:disabled { opacity: .55; cursor: not-allowed; }
+.tn-btn-primary { background: var(--tn-brand); color: #fff; }
+.tn-btn-primary:hover:not(:disabled) { background: var(--tn-brand-dark); }
+.tn-btn-ghost { border-color: var(--tn-border); color: var(--tn-text); background: #fff; }
+.tn-btn-ghost:hover:not(:disabled) { border-color: var(--tn-brand); color: var(--tn-brand); }
+.tn-btn-link { background: none; color: var(--tn-brand); padding: 4px 6px; font-weight: 600; }
+.tn-btn-link.danger { color: var(--tn-err); }
+.tn-btn-block { display: block; width: 100%; margin-bottom: 10px; }
+
+/* ---------- Таблицы ---------- */
+.tn-table-wrap { overflow-x: auto; }
+.tn-table { width: 100%; border-collapse: collapse; }
+.tn-table th, .tn-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--tn-border);
+  white-space: nowrap;
+}
+.tn-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--tn-muted);
+}
+.tn-table tbody tr:hover { background: #f8f9fc; }
+.tn-table tbody tr { cursor: pointer; }
+
+/* ---------- Бейджи ---------- */
+.tn-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tn-badge-ok { background: #dcfce7; color: #15803d; }
+.tn-badge-warn { background: #fef3c7; color: #b45309; }
+.tn-badge-info { background: #dbeafe; color: #1d4ed8; }
+.tn-badge-err { background: #fee2e2; color: #b91c1c; }
+.tn-badge-muted { background: #e5e7eb; color: #4b5563; }
+.tn-badge-brand { background: #fdf0f0; color: var(--tn-brand); }
+
+/* ---------- Формы / фильтры ---------- */
+.tn-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+.tn-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--tn-muted);
+  font-weight: 600;
+}
+.tn-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.tn-form-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.tn-form-grid .span2 { grid-column: span 2; }
+.tn-actions { display: flex; gap: 12px; margin-top: 20px; }
+
+/* ---------- Модал ---------- */
+.tn-modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 22, .55);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.tn-modal {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 560px;
+  padding: 22px;
+}
+.tn-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.tn-modal-x { background: none; border: none; font-size: 18px; color: var(--tn-muted); cursor: pointer; }
+.tn-kv { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+.tn-kv div { display: flex; flex-direction: column; gap: 3px; }
+.tn-kv div.span2 { grid-column: span 2; }
+.tn-kv span { font-size: 12px; color: var(--tn-muted); }
+.tn-kv b { font-weight: 600; }
+
+/* ---------- Тосты ---------- */
+.tn-toasts {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tn-toast {
+  background: #fff;
+  border-left: 4px solid var(--tn-ok);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+  padding: 12px 16px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+}
+.tn-toast b { font-size: 14px; }
+.tn-toast span { font-size: 13px; color: var(--tn-muted); }
+.tn-toast-error { border-left-color: var(--tn-err); }
+.tn-toast-warn { border-left-color: var(--tn-warn); }
+
+/* ---------- Навигация (тёмный сайдбар) ---------- */
+.tn-nav {
+  background: var(--tn-sidebar);
+  color: var(--tn-sidebar-text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--tn-radius);
+}
+.tn-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--tn-sidebar-text);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.tn-nav-item:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+.tn-nav-item.active { background: var(--tn-sidebar-active); color: #fff; }
+
+/* ---------- Аватар / статистика ---------- */
+.tn-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--tn-brand);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+}
+.tn-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.tn-stat-card {
+  background: var(--tn-card);
+  border: 1px solid var(--tn-border);
+  border-radius: var(--tn-radius);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tn-stat-num { font-size: 26px; font-weight: 800; color: var(--tn-brand); }
+.tn-stat-card span:last-child { color: var(--tn-muted); font-size: 12px; }
+
+/* ---------- Карточка плагина ---------- */
+.tn-plugin-card {
+  background: var(--tn-card);
+  border: 1px solid var(--tn-border);
+  border-radius: var(--tn-radius);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tn-plugin-card h4 { margin: 0; font-size: 15px; }
+.tn-plugin-desc { color: var(--tn-muted); font-size: 13px; line-height: 1.4; }
+.tn-plugin-meta { font-size: 12px; color: var(--tn-muted); }
+
+/* Классы вьюхи LogicTEAM.007 (tn-ag-*) на семантических токенах дизайн-системы SBE. */
+
+.tn-ag-container {
+  padding: 0;
+  height: 100%;
+}
+
+/* ================= Фасад (каркас: шапка + сайдбар + контент) ================= */
+
+.tn-ag-app {
+  --accent: #E11B17;
+  --accent-soft: #FDECEB;
+  --bg: #F3F5F7;
+  --surface: #FFFFFF;
+  --border: #E7EAEF;
+  --muted: #667387;
+  --active-nav: #F9F9FA;
+  --radius: 16px;
+  --radius-sm: 10px;
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 24px;
+  background: var(--bg);
+  color: #171725;
+  box-sizing: border-box;
+  font-size: 14px;
+}
+
+.tn-ag-topbar {
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.tn-ag-module-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #171725;
+  white-space: nowrap;
+}
+
+.tn-ag-crumb {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tn-ag-spacer {
+  flex: 1;
+}
+
+.tn-ag-create {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 15px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.tn-ag-create:hover {
+  background: var(--accent-soft);
+}
+
+.tn-ag-main {
+  flex: 1;
+  display: flex;
+  gap: 16px;
+  min-height: 0;
+}
+
+.tn-ag-sidebar {
+  width: 300px;
+  min-width: 300px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width .2s, min-width .2s;
+}
+
+.tn-ag-app.collapsed .tn-ag-sidebar {
+  width: 64px;
+  min-width: 64px;
+}
+
+.tn-ag-collapse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  color: var(--muted);
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.tn-ag-collapse:hover {
+  color: #171725;
+}
+
+.tn-ag-app.collapsed .tn-ag-collapse .tn-ag-collapse-lbl {
+  display: none;
+}
+
+.tn-ag-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 10px 16px;
+}
+
+.tn-ag-grp {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  color: #171725;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.tn-ag-grp:hover {
+  background: var(--bg);
+}
+
+.tn-ag-grp .tn-ag-grp-chev {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+  transition: transform .15s;
+}
+
+.tn-ag-grp.open .tn-ag-grp-chev {
+  transform: rotate(90deg);
+}
+
+.tn-ag-grp.open {
+  color: var(--accent);
+}
+
+.tn-ag-submenu {
+  display: block;
+  padding-left: 14px;
+}
+
+.tn-ag-nav-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
+.tn-ag-app.collapsed .tn-ag-grp .tn-ag-grp-lbl,
+.tn-ag-app.collapsed .tn-ag-grp .tn-ag-grp-chev,
+.tn-ag-app.collapsed .tn-ag-submenu {
+  display: none;
+}
+
+.tn-ag-app.collapsed .tn-ag-grp {
+  padding: 9px;
+  justify-content: center;
+}
+
+/* диалоги */
+.tn-ag-dialog-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+
+.tn-ag-dialog-item:hover {
+  background: var(--bg);
+}
+
+.tn-ag-dialog-item.active {
+  background: var(--active-nav);
+  font-weight: 600;
+}
+
+.tn-ag-dialog-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.tn-ag-dialog-del {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.tn-ag-dialog-del:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* источники */
+.tn-ag-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.tn-ag-source-dot {
+  width: 14px;
+  text-align: center;
+}
+
+.tn-ag-source-dot.ok {
+  color: #15803d;
+}
+
+.tn-ag-source-dot.no {
+  color: #b91c1c;
+}
+
+.tn-ag-source-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tn-ag-source-role {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* контент */
+.tn-ag-content {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 24px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.tn-ag-page-title {
+  font-size: 18px;
+  margin: 0 0 14px 0;
+  flex-shrink: 0;
+}
+
+.tn-ag-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tn-ag-empty {
+  color: var(--muted);
+  padding: 32px;
+  text-align: center;
+}
+
+/* ================= Чат ================= */
+
+.tn-ag-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tn-ag-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 6px;
+  margin-bottom: 12px;
+}
+
+.tn-ag-msg {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.tn-ag-msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.tn-ag-msg.assistant {
+  align-self: flex-start;
+  background: var(--bg);
+  color: #171725;
+  border-bottom-left-radius: 4px;
+}
+
+.tn-ag-msg-files {
+  font-size: 12px;
+  opacity: .85;
+  margin-top: 4px;
+}
+
+.tn-ag-msg.tn-ag-tool {
+  align-self: stretch;
+  max-width: 100%;
+  background: #fff;
+  border: 1px dashed var(--border);
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.tn-ag-tool-label {
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.tn-ag-tool.err {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.tn-ag-tool-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #475569;
+  font-size: 12px;
+}
+
+/* строка ввода */
+.tn-ag-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  flex-shrink: 0;
+}
+
+.tn-ag-attach-chip {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.tn-ag-chip-x {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tn-ag-attach-btn,
+.tn-ag-send-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #171725;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tn-ag-attach-btn:hover,
+.tn-ag-send-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tn-ag-input {
+  flex: 1;
+  min-height: 36px;
+  max-height: 160px;
+  resize: vertical;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #171725;
+  font-size: 14px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.tn-ag-meta {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 16px;
+}
