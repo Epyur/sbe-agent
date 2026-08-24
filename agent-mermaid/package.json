@@ -1,0 +1,12 @@
+{
+  "name": "agent-mermaid",
+  "version": "0.1.0",
+  "description": "Внутренний рендер mermaid-диаграмм в SVG/PNG для agent-service (LogicTEAM.007)",
+  "main": "render.js",
+  "scripts": {
+    "start": "node render.js"
+  },
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "^10.9.1"
+  }
+}

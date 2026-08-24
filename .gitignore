@@ -1,3 +1,15 @@
 node_modules/
 data.json
 *.log
+
+# --- бэк (agent-service + agent-mermaid, ветка backend) ---
+.env
+.env.*
+!.env.example
+*.exe
+*.pem
+*.key
+*.crt
+*.p12
+**/rclone.conf
+agent-mermaid/node_modules/
