@@ -129,6 +129,24 @@ export default class SbeAgentPlugin extends Plugin {
           return [];
         }
       },
+      listVaultTree: async (path: string) => {
+        const adapter = this.app.vault.adapter;
+        const out: string[] = [];
+        const walk = async (dir: string): Promise<void> => {
+          try {
+            if (!(await adapter.exists(dir))) return;
+            const listed = await adapter.list(dir);
+            out.push(...listed.files);
+            for (const folder of listed.folders) {
+              await walk(folder);
+            }
+          } catch (e: unknown) {
+            console.warn('LogicTEAM.007: listVaultTree error:', errorMessage(e));
+          }
+        };
+        await walk(path);
+        return out;
+      },
       vaultExists: async (path: string) => {
         try {
           return await this.app.vault.adapter.exists(path);

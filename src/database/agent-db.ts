@@ -5,6 +5,18 @@ import { errorMessage } from '../../../sbe-core/src/utils/errors';
 const DB_DIR = 'yourbase/sbe_agent';
 const DB_PATH = 'yourbase/sbe_agent/chat_history.json';
 
+/** Лимиты истории: глубина по диалогам и возраст (ревью безопасности 2026-08-25, п. B1). */
+const MAX_DIALOGS = 100;
+const RETENTION_DAYS = 90;
+
+/** Подписанные S3-ссылки содержат ключ доступа — в историю не попадают. */
+const SIGNED_URL_RE = /https?:\/\/[^\s"'<>]*(?:X-Amz-Signature|[?&]sig=)[^\s"'<>]*/gi;
+
+/** Убирает из текста подписанную часть S3-ссылок (?X-Amz-…). */
+function sanitizeForHistory(text: string): string {
+  return (text || '').replace(SIGNED_URL_RE, (m) => `${m.split('?')[0]}?…`);
+}
+
 /** Локальная история диалогов агента. */
 export class AgentDatabase {
   private app: App;
@@ -39,11 +51,27 @@ export class AgentDatabase {
 
   async save(): Promise<void> {
     try {
+      this.prune();
       await this.ensureDataDir();
-      await this.app.vault.adapter.write(DB_PATH, JSON.stringify(this.data, null, 2));
+      // Подписанные ссылки (ключ доступа + срок жизни ~48 ч) в файл истории не пишутся.
+      const payload: AgentDbData = {
+        dialogs: this.data.dialogs.map((d) => ({
+          ...d,
+          messages: d.messages.map(({ link, ...rest }) => rest as AgentMessage),
+        })),
+      };
+      await this.app.vault.adapter.write(DB_PATH, JSON.stringify(payload, null, 2));
     } catch (e: unknown) {
       console.error('LogicTEAM.007: не удалось сохранить историю:', errorMessage(e));
     }
+  }
+
+  /** Ограничение истории: диалоги старше RETENTION_DAYS удаляются, хвост ограничен MAX_DIALOGS. */
+  private prune(): void {
+    const cutoff = Date.now() - RETENTION_DAYS * 86400000;
+    this.data.dialogs = this.data.dialogs
+      .filter((d) => new Date(d.updated_at || d.created_at || 0).getTime() >= cutoff)
+      .slice(0, MAX_DIALOGS);
   }
 
   getDialogs(): Dialog[] {
@@ -75,10 +103,12 @@ export class AgentDatabase {
   addMessage(dialogId: string, message: AgentMessage): void {
     const d = this.getDialog(dialogId);
     if (!d) return;
-    d.messages.push(message);
-    d.updated_at = message.created_at;
-    if (d.title === 'Новый диалог' && message.role === 'user') {
-      const title = (message.content || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    // Подписанные S3-ссылки в контенте маскируются (срок жизни ~48 ч + ключ в подписи).
+    const stored: AgentMessage = { ...message, content: sanitizeForHistory(message.content || '') };
+    d.messages.push(stored);
+    d.updated_at = stored.created_at;
+    if (d.title === 'Новый диалог' && stored.role === 'user') {
+      const title = (stored.content || '').replace(/\s+/g, ' ').trim().slice(0, 40);
       if (title) d.title = title;
     }
   }

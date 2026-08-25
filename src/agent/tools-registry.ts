@@ -16,6 +16,8 @@ export interface AgentToolContext {
   readVaultText: (path: string) => Promise<string>;
   writeVaultFile: (path: string, data: ArrayBuffer | string) => Promise<void>;
   listVaultDir: (path: string) => Promise<string[]>;
+  /** Все файлы каталога рекурсивно (полные пути). */
+  listVaultTree: (path: string) => Promise<string[]>;
   vaultExists: (path: string) => Promise<boolean>;
 }
 
