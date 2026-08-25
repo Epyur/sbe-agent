@@ -224,6 +224,7 @@ export class AgentView extends ItemView {
     }
 
     messages.scrollTop = messages.scrollHeight;
+    this.scrollChatToBottom();
 
     const inputRow = this.bodyEl.createDiv({ cls: 'tn-ag-input-row' });
     this.attachChipEl = inputRow.createDiv({ cls: 'tn-ag-attach-chip' });
@@ -375,6 +376,19 @@ export class AgentView extends ItemView {
     void this.plugin.agentDb.save();
     this.renderDialogs();
     this.renderChat();
+    this.scrollChatToBottom();
+  }
+
+  /** Прокрутка чата к последнему сообщению (после отрисовки и layout). */
+  private scrollChatToBottom(): void {
+    const target = (this.chatEl?.querySelector('.tn-ag-messages') as HTMLElement | null) ?? this.chatEl ?? null;
+    if (!target) return;
+    window.requestAnimationFrame(() => {
+      target.scrollTop = target.scrollHeight;
+      window.requestAnimationFrame(() => {
+        target.scrollTop = target.scrollHeight;
+      });
+    });
   }
 
   private async getEngine(): Promise<AgentEngine | null> {
@@ -446,10 +460,12 @@ export class AgentView extends ItemView {
       this.workingEl.hidden = false;
       if (this.workingStatusEl) this.workingStatusEl.setText(status);
     }
+    this.scrollChatToBottom();
   }
 
   private finishWorking(): void {
     this.running = false;
     if (this.workingEl) this.workingEl.hidden = true;
+    this.scrollChatToBottom();
   }
 }

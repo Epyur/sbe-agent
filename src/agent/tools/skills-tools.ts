@@ -76,14 +76,17 @@ async function extractFolder(
   }
 }
 
-/** Список установленных скилов (name/description из SKILL.md). */
+/** Список установленных скилов (name/description из SKILL.md).
+ *  Ищет рекурсивно: скил может лежать и в подпапках (установка целым репозиторием). */
 export async function listSkills(ctx: AgentToolContext): Promise<ToolCallResult> {
   try {
-    const files = await ctx.listVaultDir(SKILLS_ROOT);
+    const all = await ctx.listVaultTree(SKILLS_ROOT);
     const skillDirs = new Set<string>();
-    for (const f of files) {
-      const m = f.match(new RegExp(`^${SKILLS_ROOT.replace(/\//g, '\\/')}\\/([^/]+)\\/SKILL\\.md$`));
-      if (m) skillDirs.add(m[1]);
+    for (const f of all) {
+      if (!f.endsWith('/SKILL.md')) continue;
+      const rest = f.slice(SKILLS_ROOT.length + 1);
+      const name = rest.split('/')[0];
+      if (name) skillDirs.add(name);
     }
     const skills: Array<{ name: string; description: string }> = [];
     for (const name of skillDirs) {
@@ -111,13 +114,20 @@ export async function readSkill(ctx: AgentToolContext, args: Record<string, unkn
     return { ok: false, summary: '', error: 'Требуется name (имя скила).' };
   }
   const safeName = name.replace(/[\\/:*?"<>|]/g, '_');
-  const mdPath = `${SKILLS_ROOT}/${safeName}/SKILL.md`;
   try {
+    // прямой путь или поиск по дереву (скилы из целых репозиториев могут лежать глубже)
+    let mdPath = `${SKILLS_ROOT}/${safeName}/SKILL.md`;
     if (!(await ctx.vaultExists(mdPath))) {
-      return { ok: false, summary: '', error: `Скил «${safeName}» не установлен. Сначала вызовите add_skill или list_skills.` };
+      const all = await ctx.listVaultTree(SKILLS_ROOT);
+      const found = all.find(f => new RegExp(`(^|/)${safeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/SKILL\\.md$`, 'i').test(f));
+      if (!found) {
+        return { ok: false, summary: '', error: `Скил «${safeName}» не установлен. Сначала вызовите add_skill или list_skills.` };
+      }
+      mdPath = found;
     }
     const content = await ctx.readVaultText(mdPath);
-    const files = (await ctx.listVaultDir(`${SKILLS_ROOT}/${safeName}`)).filter(f => !f.endsWith('SKILL.md'));
+    const dir = mdPath.slice(0, mdPath.lastIndexOf('/'));
+    const files = (await ctx.listVaultDir(dir)).filter(f => !f.endsWith('SKILL.md')).map(f => f.split('/').pop() || f);
     return {
       ok: true,
       summary: `Скил «${safeName}» загружен. Следуй его инструкциям.`,

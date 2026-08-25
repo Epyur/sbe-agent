@@ -1,7 +1,7 @@
 {
   "id": "sbe-agent",
   "name": "LogicTEAM.007",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "minAppVersion": "1.11.4",
   "description": "Универсальный LLM-агент: MCP-инструменты (создание/чтение Word/Excel/JSON/PDF через agent-service и S3), чтение баз (письма, документы, ЛИМС) по правам пользователя, локальная база задач.",
   "author": "Полищук Евгений (polishchuk@tn.ru)",
