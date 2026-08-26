@@ -65,22 +65,31 @@ export async function parseFile(
       data?: unknown;
     };
 
-    // Большие документы: управляемое усечение (начало + конец), чтобы текст
-    // гарантированно помещался в контекст LLM. Полный текст — в исходном файле.
+    // Полнотекстовый анализ больших документов (2026-08-26): полный извлечённый
+    // текст сохраняем в вольт (yourbase/sbe_agent/parsed/), в контекст кладём
+    // управляемое усечение (начало), а путь/объём сообщаем — LLM читает остальное
+    // тулом read_text_part (по частям, включая «продолжай» после перезапуска).
     const PARSE_TEXT_LIMIT = 24000;
+    let fullPath = '';
     if (parsed.text && parsed.text.length > PARSE_TEXT_LIMIT) {
       const total = parsed.text.length;
+      const safe = sanitizeParsedName(fileName);
+      fullPath = `yourbase/sbe_agent/parsed/${safe}.txt`;
+      await ctx.writeVaultFile(fullPath, parsed.text);
       const head = PARSE_TEXT_LIMIT - 1000;
       const tail = 800;
       parsed.text =
         parsed.text.slice(0, head) +
-        `\n…[текст сокращён для анализа: показано начало и конец из ${total} символов; полный текст — в исходном файле]…\n` +
+        `\n…[текст сокращён для анализа: показано начало и конец из ${total} символов; ПОЛНЫЙ текст сохранён: ${fullPath} — читай его частями через read_text_part(path, start)]…\n` +
         parsed.text.slice(-tail);
     }
 
     let summary = `Файл **${fileName}** разобран (${parsed.kind}).`;
     const textLen = parsed.text ? parsed.text.length : 0;
     summary += ` Символов текста: ${textLen}.`;
+    if (fullPath) {
+      summary += `\nДокумент большой — полный текст сохранён: ${fullPath}. Читай его частями: вызови read_text_part с path="${fullPath}" и start=0, затем повторяй с увеличивающимся start, пока не получишь «конец документа».`;
+    }
     if (parsed.text) {
       const snippet = parsed.text.slice(0, 600);
       summary += `\n\n\`\`\`\n${snippet}${parsed.text.length > 600 ? '\n…' : ''}\n\`\`\``;
@@ -98,6 +107,47 @@ export async function parseFile(
       summary += `\n\n\`\`\`json\n${jsonSnippet.slice(0, 600)}${jsonSnippet.length > 600 ? '\n…' : ''}\n\`\`\``;
     }
     return { ok: true, summary, data: parsed };
+  } catch (e: unknown) {
+    return { ok: false, summary: '', error: errorMessage(e) };
+  }
+}
+
+/** Безопасное имя файла для сохранённого текста (без путей и недопустимых символов). */
+function sanitizeParsedName(fileName: string): string {
+  const base = (fileName || 'file').replace(/\.[^.]+$/, '');
+  const clean = base.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/_+/g, '_').slice(0, 80);
+  return clean || 'document';
+}
+
+/** Чтение части сохранённого текста документа (полнотекстовый анализ). */
+export async function readTextPart(ctx: AgentToolContext, args: Record<string, unknown>): Promise<ToolCallResult> {
+  const path = String(args.path || '').trim();
+  if (!path) {
+    return { ok: false, summary: '', error: 'Требуется path (путь к сохранённому тексту из parse_file).' };
+  }
+  if (!path.startsWith('yourbase/sbe_agent/parsed/')) {
+    return { ok: false, summary: '', error: 'Можно читать только файлы в yourbase/sbe_agent/parsed/.' };
+  }
+  const start = Math.max(0, Math.floor(Number(args.start) || 0));
+  const length = Math.min(24000, Math.max(500, Math.floor(Number(args.length) || 24000)));
+  try {
+    if (!(await ctx.vaultExists(path))) {
+      return { ok: false, summary: '', error: `Файл не найден: ${path}` };
+    }
+    const text = await ctx.readVaultText(path);
+    if (start >= text.length) {
+      return { ok: true, summary: 'Достигнут конец документа.' };
+    }
+    const end = Math.min(start + length, text.length);
+    const slice = text.slice(start, end);
+    const remaining = text.length - end;
+    const tail = remaining > 0
+      ? `\n…(осталось ${remaining} символов; вызови read_text_part с start=${end})`
+      : '\n(конец документа)';
+    return {
+      ok: true,
+      summary: `Символы ${start}–${end} из ${text.length}:\n\`\`\`\n${slice}\n\`\`\`${tail}`,
+    };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
   }

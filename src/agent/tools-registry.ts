@@ -1,5 +1,5 @@
 import type { AgentToolSchema, ToolCallResult, SourceAvailability } from '../types/agent';
-import { generateFile, parseFile } from './tools/file-tools';
+import { generateFile, parseFile, readTextPart } from './tools/file-tools';
 import { getEmails, getDocuments, getLimsRequests } from './tools/database-tools';
 import { getTasks } from './tools/tasks-tool';
 import { addSkill, listSkills, readSkill } from './tools/skills-tools';
@@ -19,6 +19,8 @@ export interface AgentToolContext {
   /** Все файлы каталога рекурсивно (полные пути). */
   listVaultTree: (path: string) => Promise<string[]>;
   vaultExists: (path: string) => Promise<boolean>;
+  /** Явное подтверждение пользователя (для рискованных операций, ревью B6). */
+  confirmUser?: (message: string) => Promise<boolean>;
 }
 
 export interface AgentAttachment {
@@ -357,6 +359,22 @@ export function createTools(): AgentTool[] {
         },
       },
       execute: (ctx, args) => readSkill(ctx, args),
+    },
+    {
+      schema: {
+        name: 'read_text_part',
+        description: 'Прочитать часть сохранённого текста большого документа (после parse_file). parse_file сообщает путь к сохранённому тексту и объём; вызывай read_text_part повторно с увеличивающимся start, пока не получишь «конец документа» — так можно проанализировать весь документ, а не только начало.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Путь к сохранённому тексту (сообщит parse_file, обычно yourbase/sbe_agent/parsed/...)' },
+            start: { type: 'number', description: 'С какого символа читать (0 — начало)' },
+            length: { type: 'number', description: 'Сколько символов прочитать (максимум 24000, по умолчанию 24000)' },
+          },
+          required: ['path', 'start'],
+        },
+      },
+      execute: (ctx, args) => readTextPart(ctx, args),
     },
     {
       schema: {
