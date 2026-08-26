@@ -539,3 +539,26 @@
   color: var(--tn-danger, #e11b17);
 }
 
+
+/* Вкладка агент-браузера (MVP, 2026-08-26) */
+.tn-ag-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.tn-ag-browser-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+}
+.tn-ag-browser-wait {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--background-modifier-warning, rgba(230,126,34,0.15));
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 13px;
+}
+
