@@ -126,7 +126,41 @@ export class AgentSettingsTab extends PluginSettingTab {
         await this.renderGlobalSkillsList();
       }));
 
+    new Setting(el)
+      .setName('Загрузить все локальные скилы')
+      .setDesc('Просканирует yourbase/sbe_agent/skills/ и зальёт на сервер каждую папку с SKILL.md (существующие глобальные скилы перезапишет).')
+      .addButton(btn => btn.setButtonText('Загрузить все').setCta().onClick(async () => {
+        await this.uploadAllLocalSkills();
+      }));
+
     await this.renderGlobalSkillsList();
+  }
+
+  /** Заливает на сервер ВСЕ локальные скилы (папки с SKILL.md в skills/). */
+  private async uploadAllLocalSkills(): Promise<void> {
+    try {
+      const adapter = this.app.vault.adapter;
+      const skillsRoot = 'yourbase/sbe_agent/skills';
+      if (!(await adapter.exists(skillsRoot))) {
+        new Notice('Папка yourbase/sbe_agent/skills не найдена.');
+        return;
+      }
+      const listed = await adapter.list(skillsRoot);
+      const ok: string[] = [];
+      const fail: string[] = [];
+      for (const folder of listed.folders) {
+        const skillMd = `${folder}/SKILL.md`;
+        if (!(await adapter.exists(skillMd))) continue;
+        const name = folder.split('/').pop() || '';
+        const err = await this.uploadGlobalSkill(folder);
+        if (err) fail.push(`${name}: ${err}`);
+        else ok.push(name);
+      }
+      new Notice(`Загружено на сервер: ${ok.length}${fail.length ? `; ошибки: ${fail.join('; ')}` : ''}.`);
+      await this.renderGlobalSkillsList();
+    } catch (e: unknown) {
+      new Notice(`Ошибка загрузки: ${errorMessage(e)}`);
+    }
   }
 
   private async renderGlobalSkillsList(): Promise<void> {
