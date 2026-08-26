@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -14,10 +15,13 @@ import (
 
 var jwtSecret []byte
 
+// loadJWTSecret — per-service ключ (Блок D, ревью 1.2): вместо общего JWT_SECRET
+// валидируем токены своим {APP}_SERVICE_SECRET (тем же, что у /apps/register).
 func loadJWTSecret() error {
-	secret := os.Getenv("JWT_SECRET")
+	key := strings.ToUpper(appIDFromEnv()) + "_SERVICE_SECRET"
+	secret := os.Getenv(key)
 	if secret == "" {
-		return errors.New("JWT_SECRET is required")
+		return fmt.Errorf("%s is required", key)
 	}
 	jwtSecret = []byte(secret)
 	return nil
@@ -31,17 +35,40 @@ type jwtClaims struct {
 }
 
 func parseJWT(tokenStr string) (*jwtClaims, error) {
+	claims, err := parseWithKey(tokenStr, jwtSecret)
+	if err != nil {
+		// Переходный период (Блок D): принимаем и токены, подписанные прежним
+		// общим JWT_SECRET, пока он ещё присутствует в env.
+		if legacy := os.Getenv("JWT_SECRET"); legacy != "" {
+			if c, e2 := parseWithKey(tokenStr, []byte(legacy)); e2 == nil {
+				return c, nil
+			}
+		}
+	}
+	return claims, err
+}
+
+func parseWithKey(tokenStr string, key []byte) (*jwtClaims, error) {
 	claims := &jwtClaims{}
 	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return jwtSecret, nil
+		return key, nil
 	}, jwt.WithExpirationRequired(), jwt.WithLeeway(30*time.Second))
 	if err != nil || !token.Valid {
 		return nil, errors.New("invalid token")
 	}
 	return claims, nil
+}
+
+func claimStringsContains(a jwt.ClaimStrings, s string) bool {
+	for _, v := range a {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func appIDFromEnv() string {
@@ -105,6 +132,16 @@ func (s *Server) requirePerm(minRole string) func(http.HandlerFunc) http.Handler
 			}
 			if claims.AppID != appIDFromEnv() {
 				writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+				return
+			}
+			// Блок D (ревью 1.2): iss/aud — строго, когда присутствуют
+			// (старые токены без них допускаются в переходный период).
+			if claims.Issuer != "" && claims.Issuer != "auth-service" {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+				return
+			}
+			if len(claims.Audience) > 0 && !claimStringsContains(claims.Audience, appIDFromEnv()) {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 				return
 			}
 
