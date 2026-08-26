@@ -396,7 +396,10 @@ export class AgentView extends ItemView {
     try {
       const llm = await this.plugin.getLlm();
       this.engine = new AgentEngine(
-        { completeJson: (system, user, opts) => llm.completeJson(system, user, opts) },
+        {
+          complete: (system, user, opts) => llm.complete(system, user, opts),
+          completeJson: (system, user, opts) => llm.completeJson(system, user, opts),
+        },
         createTools(),
         this.plugin.buildToolContext(),
         this.plugin.settings.maxIterations || 15,

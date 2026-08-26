@@ -519,3 +519,23 @@
   font-size: 13px;
   margin-top: 16px;
 }
+
+/* Глобальные скилы в настройках (Блок B6) */
+.tn-ag-skill-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+.tn-ag-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 2px 6px;
+}
+.tn-ag-icon-btn:hover {
+  color: var(--tn-danger, #e11b17);
+}
+

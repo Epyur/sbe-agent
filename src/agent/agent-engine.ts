@@ -19,13 +19,19 @@ export interface RunAgentParams {
 
 /** Цикл агента: контекст → LLM → tool_call/final → исполнение → повтор. */
 export class AgentEngine {
-  private llm: { completeJson: (system: string, user: string, opts?: { model?: string }) => Promise<unknown> };
+  private llm: {
+    complete: (system: string, user: string, opts?: { model?: string }) => Promise<string>;
+    completeJson: (system: string, user: string, opts?: { model?: string }) => Promise<unknown>;
+  };
   private tools: AgentTool[];
   private ctx: AgentToolContext;
   private maxIterations: number;
 
   constructor(
-    llm: { completeJson: (system: string, user: string, opts?: { model?: string }) => Promise<unknown> },
+    llm: {
+      complete: (system: string, user: string, opts?: { model?: string }) => Promise<string>;
+      completeJson: (system: string, user: string, opts?: { model?: string }) => Promise<unknown>;
+    },
     tools: AgentTool[],
     ctx: AgentToolContext,
     maxIterations = DEFAULT_MAX_ITERATIONS,
@@ -67,7 +73,7 @@ export class AgentEngine {
       } else if (m.role === 'assistant') {
         lines.push(`[Ассистент] ${m.content}`);
       } else if (m.role === 'tool') {
-        lines.push(`[Результат тула ${m.tool || ''} (${m.toolOk ? 'ok' : 'ошибка'})] ${m.content.slice(0, 4000)}`);
+        lines.push(`[Результат тула ${m.tool || ''} (${m.toolOk ? 'ok' : 'ошибка'})] ${m.content.slice(0, 15000)}`);
       }
     }
     lines.push('');
@@ -89,8 +95,11 @@ export class AgentEngine {
       params.onProgress('Агент думает…');
       let turn: LlmTurn;
       try {
-        const parsed = await this.llm.completeJson(system, transcript, params.model ? { model: params.model } : undefined);
-        turn = this.normalizeTurn(parsed);
+        // Ленивый разбор хода (не жёсткий completeJson): сырой текст ответа LLM;
+        // если это не JSON (частая ситуация после чтения больших документов) —
+        // текст становится финальным ответом, а не ошибкой.
+        const raw = await this.llm.complete(system, transcript, params.model ? { model: params.model } : undefined);
+        turn = this.parseTurn(raw);
       } catch (e: unknown) {
         params.onAssistant(`Ошибка обращения к LLM: ${errorMessage(e)}`);
         return;
@@ -129,7 +138,16 @@ export class AgentEngine {
     params.onAssistant(`Превышено число шагов агента (${this.maxIterations}). Попробуйте сформулировать задачу более конкретно, либо увеличьте лимит шагов в настройках агента.`);
   }
 
-  private normalizeTurn(parsed: unknown): LlmTurn {
+  /** Ленивый разбор хода LLM: пытаемся достать JSON (tool_call/final); если ответ
+   *  не JSON — считаем его финальным текстом для пользователя (Блок: массовые
+   *  ошибки JSON при разборе больших документов). */
+  private parseTurn(text: string): LlmTurn {
+    let parsed: unknown = null;
+    try {
+      parsed = this.extractJson(text);
+    } catch {
+      parsed = null;
+    }
     if (parsed && typeof parsed === 'object') {
       const obj = parsed as Record<string, unknown>;
       if (obj.type === 'final') {
@@ -144,8 +162,23 @@ export class AgentEngine {
             : {},
         };
       }
+      // JSON есть, но не того вида — показываем пользователю как есть
+      if (typeof (obj as { text?: unknown }).text === 'string') {
+        return { type: 'final', text: (obj as { text: string }).text };
+      }
     }
-    return { type: 'final', text: String(parsed ?? '') };
+    return { type: 'final', text: text.trim() };
+  }
+
+  /** Достаёт JSON-объект из ответа (первый { … последний }), толерантно к обёртке. */
+  private extractJson(text: string): unknown {
+    let cleaned = text.trim();
+    const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) cleaned = fence[1].trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end === -1 || end < start) throw new Error('JSON не найден');
+    return JSON.parse(cleaned.substring(start, end + 1));
   }
 
   private toolMessage(tool: string, ok: boolean, content: string, link?: { url: string; label: string }): AgentMessage {

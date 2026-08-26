@@ -3,6 +3,7 @@ import type { ToolCallResult } from '../../types/agent';
 import { requestUrl } from 'obsidian';
 import JSZip from 'jszip';
 import { errorMessage } from '../../../../sbe-core/src/utils/errors';
+import { listGlobalSkills, getGlobalSkill } from '../skills-service';
 
 const SKILLS_ROOT = 'yourbase/sbe_agent/skills';
 
@@ -55,6 +56,31 @@ export async function addSkill(ctx: AgentToolContext, args: Record<string, unkno
   }
   try {
     const { owner, repo } = parseRepoUrl(repoUrl);
+
+    // Блок B6 (supply-chain): глобальный скил = белый список (утверждён
+    // администратором, источник — сервер). Если скил уже есть глобально —
+    // не качаем с GitHub, а сообщаем, что он доступен через list_skills/read_skill.
+    const targetName = (skillPath || repo).toLowerCase();
+    const globals = await listGlobalSkills(ctx);
+    const globalHit = globals.find(g => g.name.toLowerCase() === targetName);
+    if (globalHit) {
+      return {
+        ok: true,
+        summary: `Скил «${globalHit.name}» уже установлен ГЛОБАЛЬНО (источник — сервер, проверен администратором) и доступен: используй list_skills, затем read_skill. Скачивать с GitHub не нужно.`,
+      };
+    }
+
+    // Вариант B: источник вне белого списка — обязательное подтверждение
+    // пользователя с предупреждением о необходимости проверить безопасность.
+    if (ctx.confirmUser) {
+      const confirmed = await ctx.confirmUser(
+        `Скил «${skillPath || repo}» из репозитория «${owner}/${repo}» не входит в список глобально установленных (источник не проверен администратором). Установить локально в вольт? Перед использованием рекомендуется проверить содержимое скила.`,
+      );
+      if (!confirmed) {
+        return { ok: false, summary: '', error: 'Установка отменена пользователем: скил не входит в доверенный список.' };
+      }
+    }
+
     const zipBuffer = await downloadZip(ctx, owner, repo);
     const zip = await JSZip.loadAsync(zipBuffer);
 
@@ -107,7 +133,7 @@ async function extractFolder(
   }
 }
 
-/** Список установленных скилов (name/description из SKILL.md).
+/** Список установленных скилов (name/description из SKILL.md) — локальные + глобальные.
  *  Ищет рекурсивно: скил может лежать и в подпапках (установка целым репозиторием). */
 export async function listSkills(ctx: AgentToolContext): Promise<ToolCallResult> {
   try {
@@ -119,7 +145,7 @@ export async function listSkills(ctx: AgentToolContext): Promise<ToolCallResult>
       const name = rest.split('/')[0];
       if (name) skillDirs.add(name);
     }
-    const skills: Array<{ name: string; description: string }> = [];
+    const skills: Array<{ name: string; description: string; global?: boolean }> = [];
     for (const name of skillDirs) {
       try {
         const content = await ctx.readVaultText(`${SKILLS_ROOT}/${name}/SKILL.md`);
@@ -128,17 +154,26 @@ export async function listSkills(ctx: AgentToolContext): Promise<ToolCallResult>
         // пропускаем битые скилы
       }
     }
-    if (skills.length === 0) {
-      return { ok: true, summary: 'Установленных скилов нет. Используйте add_skill, чтобы установить скил из GitHub-репозитория.', data: [] };
+    const globals = await listGlobalSkills(ctx);
+    for (const g of globals) {
+      if (!skills.some(s => s.name === g.name)) {
+        skills.push({ name: g.name, description: g.description, global: true });
+      }
     }
-    const summary = `Установленные скилы (${skills.length}):\n` + skills.map(s => `- **${s.name}**: ${s.description || '—'}`).join('\n');
+    if (skills.length === 0) {
+      return { ok: true, summary: 'Скилов нет. Используйте add_skill, чтобы установить скил из GitHub-репозитория (или обратитесь к администратору за глобальным скилом).', data: [] };
+    }
+    const summary = `Скилы (${skills.length}):\n` +
+      skills.map(s => `- ${s.global ? '🌐 ' : ''}**${s.name}**: ${s.description || '—'}`).join('\n') +
+      (globals.length > 0 ? '\n\n🌐 — глобальные скилы (утверждены администратором, доступны с сервера).' : '');
     return { ok: true, summary, data: skills };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
   }
 }
 
-/** Загружает SKILL.md скила в контекст агента (подключение по мере необходимости). */
+/** Загружает SKILL.md скила в контекст агента (подключение по мере необходимости).
+ *  Сначала ищет локально, затем — глобально (на сервере). */
 export async function readSkill(ctx: AgentToolContext, args: Record<string, unknown>): Promise<ToolCallResult> {
   const name = String(args.name || '').trim();
   if (!name) {
@@ -148,29 +183,45 @@ export async function readSkill(ctx: AgentToolContext, args: Record<string, unkn
   try {
     // прямой путь или поиск по дереву (скилы из целых репозиториев могут лежать глубже)
     let mdPath = `${SKILLS_ROOT}/${safeName}/SKILL.md`;
-    if (!(await ctx.vaultExists(mdPath))) {
+    let local = false;
+    if (await ctx.vaultExists(mdPath)) {
+      local = true;
+    } else {
       const all = await ctx.listVaultTree(SKILLS_ROOT);
       const found = all.find(f => new RegExp(`(^|/)${safeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/SKILL\\.md$`, 'i').test(f));
-      if (!found) {
-        return { ok: false, summary: '', error: `Скил «${safeName}» не установлен. Сначала вызовите add_skill или list_skills.` };
+      if (found) {
+        mdPath = found;
+        local = true;
       }
-      mdPath = found;
     }
-    const content = await ctx.readVaultText(mdPath);
-    const dir = mdPath.slice(0, mdPath.lastIndexOf('/'));
-    const files = (await ctx.listVaultDir(dir)).filter(f => !f.endsWith('SKILL.md')).map(f => f.split('/').pop() || f);
-    return {
-      ok: true,
-      summary: `Скил «${safeName}» загружен. Следуй его инструкциям.`,
-      data: { name: safeName, skill_md: content, files },
-    };
+    if (local) {
+      const content = await ctx.readVaultText(mdPath);
+      const dir = mdPath.slice(0, mdPath.lastIndexOf('/'));
+      const files = (await ctx.listVaultDir(dir)).filter(f => !f.endsWith('SKILL.md')).map(f => f.split('/').pop() || f);
+      return {
+        ok: true,
+        summary: `Скил «${safeName}» загружен. Следуй его инструкциям.`,
+        data: { name: safeName, skill_md: content, files },
+      };
+    }
+    // глобальный скил (с сервера)
+    const g = await getGlobalSkill(ctx, safeName);
+    if (g) {
+      const files = g.files.map(f => f.name);
+      return {
+        ok: true,
+        summary: `Глобальный скил «${g.name}» загружен. Следуй его инструкциям.`,
+        data: { name: g.name, skill_md: g.content, files },
+      };
+    }
+    return { ok: false, summary: '', error: `Скил «${safeName}» не найден ни локально, ни глобально. Сначала вызовите list_skills.` };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
   }
 }
 
 /** Извлекает name/description из frontmatter SKILL.md. */
-function parseSkillDescription(content: string): string {
+export function parseSkillDescription(content: string): string {
   const m = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!m) return '';
   const desc = m[1].match(/^\s*description:\s*"?([^"\n]+)"?\s*$/m);

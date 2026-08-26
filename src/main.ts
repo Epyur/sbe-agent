@@ -2,6 +2,7 @@ import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { AgentDatabase } from './database/agent-db';
 import { AgentView, SBE_AGENT_VIEW_TYPE } from './ui/agent-view';
 import { AgentSettingsTab } from './ui/settings-tab';
+import { ConfirmModal } from './ui/confirm-modal';
 import { publishService, unpublishService, getService } from '../../sbe-core/src/bridge';
 import type { SbeAgentApi, SbeLlmApi, SbeApstoreApi } from '../../sbe-core/src/types';
 import type { SourceAvailability } from './types/agent';
@@ -155,6 +156,12 @@ export default class SbeAgentPlugin extends Plugin {
           return false;
         }
       },
+      confirmUser: (message: string) => {
+        return new Promise<boolean>((resolve) => {
+          const modal = new ConfirmModal(this.app, message, 'Установить', resolve);
+          modal.open();
+        });
+      },
     };
   }
 
@@ -186,8 +193,8 @@ export default class SbeAgentPlugin extends Plugin {
     }
   }
 
-  /** LLM из центра sbe-llm (completeJson для JSON-протокола тулов). */
-  async getLlm(): Promise<Pick<SbeLlmApi, 'completeJson'>> {
+  /** LLM из центра sbe-llm (completeJson для JSON-протокола тулов, complete — сырой текст). */
+  async getLlm(): Promise<Pick<SbeLlmApi, 'complete' | 'completeJson'>> {
     return getService('sbe-llm');
   }
 
