@@ -67,6 +67,8 @@ func (s *Server) handleSetPermission(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
+	// Лимит тела (1 МБ) — ревью 1.4.
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
 		return

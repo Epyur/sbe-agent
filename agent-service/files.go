@@ -105,6 +105,8 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	defer release()
 
 	var req GenerateRequest
+	// Лимит тела (8 МБ — спеку с mermaid-кодом/секциями, ревью 1.4).
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
 		return
@@ -255,32 +257,38 @@ func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(header.Filename), "."))
+	// Ревью 2.3: err.Error() раньше утекал клиенту (детали внутренних библиотек,
+	// пути, версии). Детали — только в серверный лог, клиенту — общее сообщение.
 	switch ext {
 	case "docx":
 		text, err := parseDocx(data)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "docx parse error: " + err.Error()})
+			log.Printf("parse docx: %v", err)
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "не удалось разобрать документ DOCX"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"kind": "docx", "text": text})
 	case "xlsx":
 		sheets, err := parseXlsx(data)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "xlsx parse error: " + err.Error()})
+			log.Printf("parse xlsx: %v", err)
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "не удалось разобрать книгу XLSX"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"kind": "xlsx", "sheets": sheets})
 	case "pdf":
 		text, err := parsePdf(data)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "pdf parse error: " + err.Error()})
+			log.Printf("parse pdf: %v", err)
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "не удалось извлечь текст из PDF"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"kind": "pdf", "text": text})
 	case "json":
 		var parsed any
 		if err := json.Unmarshal(data, &parsed); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "json parse error: " + err.Error()})
+			log.Printf("parse json: %v", err)
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "не удалось разобрать JSON"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"kind": "json", "data": parsed})

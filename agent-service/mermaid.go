@@ -30,6 +30,11 @@ func renderMermaid(ctx context.Context, code, format string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Общий токен с agent-mermaid (ревью 2.4): без него рендер открыт любому
+	// контейнеру в docker-сети.
+	if tok := os.Getenv("MERMAID_AUTH_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
