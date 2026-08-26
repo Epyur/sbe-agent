@@ -9,12 +9,12 @@ const DB_PATH = 'yourbase/sbe_agent/chat_history.json';
 const MAX_DIALOGS = 100;
 const RETENTION_DAYS = 90;
 
-/** Подписанные S3-ссылки содержат ключ доступа — в историю не попадают. */
+/** Подписанные S3-ссылки содержат ключ доступа и истекают (~48 ч) —
+ *  в историю попадает только пояснение, а не сама ссылка. */
 const SIGNED_URL_RE = /https?:\/\/[^\s"'<>]*(?:X-Amz-Signature|[?&]sig=)[^\s"'<>]*/gi;
 
-/** Убирает из текста подписанную часть S3-ссылок (?X-Amz-…). */
 function sanitizeForHistory(text: string): string {
-  return (text || '').replace(SIGNED_URL_RE, (m) => `${m.split('?')[0]}?…`);
+  return (text || '').replace(SIGNED_URL_RE, '(одноразовая ссылка на файл истекла — запросите файл заново)');
 }
 
 /** Локальная история диалогов агента. */

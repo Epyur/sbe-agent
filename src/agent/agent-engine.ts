@@ -62,7 +62,8 @@ export class AgentEngine {
     const lines: string[] = [];
     for (const m of dialog.messages) {
       if (m.role === 'user') {
-        lines.push(`[Пользователь] ${m.content}`);
+        const files = m.files?.length ? ` (прикреплён файл: ${m.files.join(', ')})` : '';
+        lines.push(`[Пользователь] ${m.content}${files}`);
       } else if (m.role === 'assistant') {
         lines.push(`[Ассистент] ${m.content}`);
       } else if (m.role === 'tool') {

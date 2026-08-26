@@ -150,7 +150,6 @@ export function createTools(): AgentTool[] {
         input_schema: {
           type: 'object',
           properties: {
-            file_name: { type: 'string', description: 'Имя файла, который нужно прочитать' },
             note: { type: 'string', description: 'Что именно нужно извлечь из файла' },
           },
         },
@@ -159,12 +158,7 @@ export function createTools(): AgentTool[] {
         if (!attachment) {
           return { ok: false, summary: '', error: 'В сообщении нет прикреплённого файла. Попросите пользователя прикрепить файл.' };
         }
-        const name = typeof args.file_name === 'string' && args.file_name
-          ? args.file_name
-          : attachment.name;
-        if (name !== attachment.name) {
-          return { ok: false, summary: '', error: `Прикреплён файл «${attachment.name}», а не «${name}».` };
-        }
+        // Файл берётся из вложения целиком; имя известно движку, LLM его не угадывает.
         return parseFile(ctx, attachment.data, attachment.name);
       },
     },
