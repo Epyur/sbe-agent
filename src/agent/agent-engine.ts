@@ -93,92 +93,124 @@ export class AgentEngine {
 
     for (let i = 0; i < this.maxIterations; i++) {
       params.onProgress('Агент думает…');
-      let turn: LlmTurn;
+      let turns: LlmTurn[];
       try {
         // Ленивый разбор хода (не жёсткий completeJson): сырой текст ответа LLM;
-        // если это не JSON (частая ситуация после чтения больших документов) —
+        // извлекаем все подряд идущие JSON-объекты и исполняем их по порядку —
+        // модель иногда возвращает сразу несколько tool_call в одном ответе
+        // (частый случай после чтения больших документов). Если JSON нет вовсе —
         // текст становится финальным ответом, а не ошибкой.
         const raw = await this.llm.complete(system, transcript, params.model ? { model: params.model } : undefined);
-        turn = this.parseTurn(raw);
+        turns = this.parseTurns(raw);
       } catch (e: unknown) {
         params.onAssistant(`Ошибка обращения к LLM: ${errorMessage(e)}`);
         return;
       }
 
-      if (turn.type === 'final') {
-        params.onAssistant(turn.text || 'Готово.');
-        return;
+      for (const turn of turns) {
+        if (turn.type === 'final') {
+          params.onAssistant(turn.text || 'Готово.');
+          return;
+        }
+
+        params.onProgress(`Вызываю инструмент «${turn.tool || '…'}»…`);
+        const tool = this.findTool(turn.tool || '');
+        if (!tool) {
+          params.onToolResult(this.toolMessage(turn.tool || '?', false, `Неизвестный инструмент «${turn.tool}»`));
+          transcript += `\n[Результат тула ${turn.tool} (ошибка)] Неизвестный инструмент\nТвой ход (только JSON):`;
+          continue;
+        }
+
+        // защита от зацикливания на одном и том же вызове
+        const callKey = `${turn.tool}:${JSON.stringify(turn.arguments || {})}`;
+        const count = (seenCalls.get(callKey) || 0) + 1;
+        seenCalls.set(callKey, count);
+        if (count > 2) {
+          params.onAssistant('Достигнут лимит повторных вызовов инструмента. Уточните задачу.');
+          return;
+        }
+
+        const result = await tool.execute(this.ctx, turn.arguments || {}, params.attachment);
+        params.onToolResult(this.toolMessage(turn.tool, result.ok, result.ok ? result.summary : (result.error || 'ошибка'), result.link));
+
+        transcript += `\n${result.ok
+          ? `[Результат тула ${turn.tool} (ok)] ${this.summaryForLlm(result.summary, result.data)}`
+          : `[Результат тула ${turn.tool} (ошибка)] ${result.error || 'ошибка'}`}\nТвой ход (только JSON):`;
       }
-
-      params.onProgress(`Вызываю инструмент «${turn.tool || '…'}»…`);
-      const tool = this.findTool(turn.tool || '');
-      if (!tool) {
-        params.onToolResult(this.toolMessage(turn.tool || '?', false, `Неизвестный инструмент «${turn.tool}»`));
-        transcript += `\n[Результат тула ${turn.tool} (ошибка)] Неизвестный инструмент\nТвой ход (только JSON):`;
-        continue;
-      }
-
-      // защита от зацикливания на одном и том же вызове
-      const callKey = `${turn.tool}:${JSON.stringify(turn.arguments || {})}`;
-      const count = (seenCalls.get(callKey) || 0) + 1;
-      seenCalls.set(callKey, count);
-      if (count > 2) {
-        params.onAssistant('Достигнут лимит повторных вызовов инструмента. Уточните задачу.');
-        return;
-      }
-
-      const result = await tool.execute(this.ctx, turn.arguments || {}, params.attachment);
-      params.onToolResult(this.toolMessage(turn.tool, result.ok, result.ok ? result.summary : (result.error || 'ошибка'), result.link));
-
-      transcript += `\n${result.ok
-        ? `[Результат тула ${turn.tool} (ok)] ${this.summaryForLlm(result.summary, result.data)}`
-        : `[Результат тула ${turn.tool} (ошибка)] ${result.error || 'ошибка'}`}\nТвой ход (только JSON):`;
     }
 
     params.onAssistant(`Превышено число шагов агента (${this.maxIterations}). Попробуйте сформулировать задачу более конкретно, либо увеличьте лимит шагов в настройках агента.`);
   }
 
-  /** Ленивый разбор хода LLM: пытаемся достать JSON (tool_call/final); если ответ
-   *  не JSON — считаем его финальным текстом для пользователя (Блок: массовые
-   *  ошибки JSON при разборе больших документов). */
-  private parseTurn(text: string): LlmTurn {
-    let parsed: unknown = null;
-    try {
-      parsed = this.extractJson(text);
-    } catch {
-      parsed = null;
-    }
-    if (parsed && typeof parsed === 'object') {
-      const obj = parsed as Record<string, unknown>;
-      if (obj.type === 'final') {
-        return { type: 'final', text: typeof obj.text === 'string' ? obj.text : '' };
-      }
-      if (obj.type === 'tool_call') {
-        return {
-          type: 'tool_call',
-          tool: typeof obj.tool === 'string' ? obj.tool : '',
-          arguments: obj.arguments && typeof obj.arguments === 'object'
-            ? (obj.arguments as Record<string, unknown>)
-            : {},
-        };
-      }
-      // JSON есть, но не того вида — показываем пользователю как есть
-      if (typeof (obj as { text?: unknown }).text === 'string') {
-        return { type: 'final', text: (obj as { text: string }).text };
-      }
-    }
-    return { type: 'final', text: text.trim() };
-  }
+  /** Ленивый разбор хода LLM в список ходов: все подряд идущие JSON-объекты
+   *  (tool_call/final) + обычный текст как финальный ответ, если JSON не найден. */
+  private parseTurns(text: string): LlmTurn[] {
+    const turns: LlmTurn[] = [];
+    let rest = text.trim();
+    const fence = rest.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) rest = fence[1].trim();
 
-  /** Достаёт JSON-объект из ответа (первый { … последний }), толерантно к обёртке. */
-  private extractJson(text: string): unknown {
-    let cleaned = text.trim();
-    const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fence) cleaned = fence[1].trim();
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start === -1 || end === -1 || end < start) throw new Error('JSON не найден');
-    return JSON.parse(cleaned.substring(start, end + 1));
+    while (true) {
+      const start = rest.indexOf('{');
+      if (start === -1) break;
+      // первый сбалансированный объект {…} (с учётом строк и экранирования)
+      let depth = 0;
+      let inStr = false;
+      let esc = false;
+      let objEnd = -1;
+      for (let i = start; i < rest.length; i++) {
+        const ch = rest[i];
+        if (inStr) {
+          if (esc) { esc = false; continue; }
+          if (ch === '\\') { esc = true; continue; }
+          if (ch === '"') inStr = false;
+          continue;
+        }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) { objEnd = i; break; }
+        }
+      }
+      if (objEnd === -1) break;
+      const objStr = rest.substring(start, objEnd + 1);
+      rest = rest.slice(objEnd + 1);
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(objStr);
+      } catch {
+        continue;
+      }
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>;
+        if (obj.type === 'final') {
+          turns.push({ type: 'final', text: typeof obj.text === 'string' ? obj.text : '' });
+          return turns;
+        }
+        if (obj.type === 'tool_call') {
+          turns.push({
+            type: 'tool_call',
+            tool: typeof obj.tool === 'string' ? obj.tool : '',
+            arguments: obj.arguments && typeof obj.arguments === 'object'
+              ? (obj.arguments as Record<string, unknown>)
+              : {},
+          });
+          continue;
+        }
+        if (typeof (obj as { text?: unknown }).text === 'string') {
+          turns.push({ type: 'final', text: (obj as { text: string }).text });
+          return turns;
+        }
+      }
+    }
+
+    if (turns.length === 0) {
+      // не JSON — показываем исходный текст модели пользователю
+      turns.push({ type: 'final', text: text.trim() });
+    }
+    return turns;
   }
 
   private toolMessage(tool: string, ok: boolean, content: string, link?: { url: string; label: string }): AgentMessage {
