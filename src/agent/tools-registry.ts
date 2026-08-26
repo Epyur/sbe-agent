@@ -5,6 +5,7 @@ import { getTasks } from './tools/tasks-tool';
 import { addSkill, listSkills, readSkill } from './tools/skills-tools';
 import { readLocalCache } from './tools/local-cache';
 import { saveRule, listRules, readRule } from './tools/rules-tools';
+import { browserOpen, browserExtract, browserLinks, browserScreenshot, browserClick, browserType, browserWait } from './tools/browser-tools';
 
 /** Контекст исполнения тулов (предоставляет плагин). */
 export interface AgentToolContext {
@@ -413,6 +414,83 @@ export function createTools(): AgentTool[] {
         },
       },
       execute: (ctx, args) => readRule(ctx, args),
+    },
+    {
+      schema: {
+        name: 'browser_open',
+        description: 'Открыть сайт во внутреннем браузере агента (вкладка откроется автоматически). Для изучения публичных сайтов, поиска информации, открытых API.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Полный URL (http/https)' },
+          },
+          required: ['url'],
+        },
+      },
+      execute: (ctx, args) => browserOpen(ctx, args),
+    },
+    {
+      schema: {
+        name: 'browser_extract',
+        description: 'Извлечь видимый текст текущей страницы внутреннего браузера в контекст (для анализа содержимого сайта).',
+        input_schema: { type: 'object', properties: {} },
+      },
+      execute: () => browserExtract(),
+    },
+    {
+      schema: {
+        name: 'browser_links',
+        description: 'Собрать ссылки текущей страницы внутреннего браузера (для навигации/обхода сайта).',
+        input_schema: { type: 'object', properties: {} },
+      },
+      execute: () => browserLinks(),
+    },
+    {
+      schema: {
+        name: 'browser_screenshot',
+        description: 'Сделать скриншот текущей страницы внутреннего браузера и сохранить в вольт (yourbase/sbe_agent/screenshots/).',
+        input_schema: { type: 'object', properties: {} },
+      },
+      execute: (ctx) => browserScreenshot(ctx),
+    },
+    {
+      schema: {
+        name: 'browser_click',
+        description: 'Кликнуть по элементу на текущей странице (CSS-селектор). sensitive=true только если действие может вести к скачиванию файла или вводу логина/пароля/конфиденциальных данных (тогда будет запрошено подтверждение). Для поисковых форм/пагинации/навигации sensitive не нужен.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS-селектор элемента' },
+            sensitive: { type: 'boolean', description: 'true — действие чувствительное (скачивание/логин/конфиденциальный ввод), запросит подтверждение' },
+          },
+          required: ['selector'],
+        },
+      },
+      execute: (ctx, args) => browserClick(ctx, args),
+    },
+    {
+      schema: {
+        name: 'browser_type',
+        description: 'Ввести текст в поле на текущей странице (CSS-селектор). sensitive=true только для логинов/паролей/конфиденциальных полей (запросит подтверждение). Для обычных полей (поиск и т.п.) sensitive не нужен.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS-селектор поля' },
+            text: { type: 'string', description: 'Вводимое значение' },
+            sensitive: { type: 'boolean', description: 'true — конфиденциальный ввод, запросит подтверждение' },
+          },
+          required: ['selector', 'text'],
+        },
+      },
+      execute: (ctx, args) => browserType(ctx, args),
+    },
+    {
+      schema: {
+        name: 'browser_wait',
+        description: 'Приостановить работу и дождаться пользователя: он выполнит действие в браузере (вход в сервис, капча) и нажмёт «Продолжить». Вызывай перед действиями, требующими авторизации или ручного ввода.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      execute: () => browserWait(),
     },
   ];
   return tools;
