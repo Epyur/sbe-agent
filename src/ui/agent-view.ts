@@ -3,6 +3,7 @@ import type SbeAgentPlugin from '../main';
 import type { Dialog, AgentMessage } from '../types/agent';
 import { AgentEngine } from '../agent/agent-engine';
 import { createTools, AgentAttachment } from '../agent/tools-registry';
+import { browserManager, WebViewEl } from '../agent/browser-manager';
 import { errorMessage } from '../../../sbe-core/src/utils/errors';
 
 export const SBE_AGENT_VIEW_TYPE = 'sbe-agent-view';
@@ -16,10 +17,14 @@ export class AgentView extends ItemView {
   private collapseLabel!: HTMLElement;
   private pageTitleEl!: HTMLElement;
   private bodyEl!: HTMLElement;
+  private contentBoxEl!: HTMLElement;
   private chatEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private attachChipEl!: HTMLElement;
   private attachInput!: HTMLInputElement;
+  private browserPanelEl: HTMLElement | null = null;
+  private browserWebviewEl: WebViewEl | null = null;
+  private browserWaitBannerEl: HTMLElement | null = null;
   private collapsed = false;
   private currentDialogId: string | null = null;
   private attachment: AgentAttachment | null = null;
@@ -54,6 +59,54 @@ export class AgentView extends ItemView {
     await this.plugin.refreshSources();
     this.buildShell();
     this.renderPage();
+
+    // Браузер агента живёт внутри этой вьюхи (панель под чатом) — чтобы webview
+    // не разрушался при переключении вкладок (отдельная вкладка теряла связь).
+    browserManager.registerHost({
+      ensureWebview: () => this.ensureBrowserWebview(),
+      setWaiting: (active) => this.setBrowserWaiting(active),
+    });
+  }
+
+  async onClose(): Promise<void> {
+    browserManager.registerHost(null);
+    this.browserPanelEl = null;
+    this.browserWebviewEl = null;
+    this.browserWaitBannerEl = null;
+  }
+
+  /** Лениво создаёт панель браузера с <webview> внутри вьюхи агента. */
+  private ensureBrowserWebview(): WebViewEl {
+    if (this.browserWebviewEl) return this.browserWebviewEl;
+    const panel = this.contentBoxEl.createDiv({ cls: 'tn-ag-browser-panel hidden' });
+    const head = panel.createDiv({ cls: 'tn-ag-browser-head' });
+    head.createSpan({ cls: 'tn-ag-browser-title', text: '🌐 Браузер' });
+    const collapseBtn = head.createEl('button', { text: 'Свернуть', cls: 'tn-ag-create' });
+    collapseBtn.addEventListener('click', () => {
+      if (this.browserPanelEl) this.browserPanelEl.toggleClass('hidden', true);
+    });
+
+    this.browserWaitBannerEl = panel.createDiv({ cls: 'tn-ag-browser-wait hidden' });
+    this.browserWaitBannerEl.createSpan({ text: '⏳ Агент ждёт вашего действия в браузере. Выполните вход/действие и нажмите «Продолжить».' });
+    const cont = this.browserWaitBannerEl.createEl('button', { text: 'Продолжить', cls: 'tn-btn tn-btn-primary' });
+    cont.addEventListener('click', () => browserManager.notifyUserDone());
+
+    const wv = document.createElement('webview') as unknown as WebViewEl;
+    wv.setAttribute('partition', 'persist:agent');
+    wv.setAttribute('allowpopups', '');
+    wv.addClass('tn-ag-browser-frame');
+    panel.appendChild(wv);
+
+    this.browserPanelEl = panel;
+    this.browserWebviewEl = wv;
+    panel.toggleClass('hidden', false);
+    return wv;
+  }
+
+  /** Включает/выключает бейдж ожидания (browser_wait). */
+  private setBrowserWaiting(active: boolean): void {
+    if (!this.browserWaitBannerEl) return;
+    this.browserWaitBannerEl.toggleClass('hidden', !active);
   }
 
   refresh(): void {
@@ -83,6 +136,7 @@ export class AgentView extends ItemView {
     this.buildNav();
 
     const content = main.createDiv({ cls: 'tn-ag-content' });
+    this.contentBoxEl = content;
     this.pageTitleEl = content.createEl('h1', { cls: 'tn-ag-page-title' });
     this.bodyEl = content.createDiv({ cls: 'tn-ag-body' });
   }

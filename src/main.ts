@@ -3,8 +3,6 @@ import { AgentDatabase } from './database/agent-db';
 import { AgentView, SBE_AGENT_VIEW_TYPE } from './ui/agent-view';
 import { AgentSettingsTab } from './ui/settings-tab';
 import { ConfirmModal } from './ui/confirm-modal';
-import { BrowserView, BROWSER_VIEW_TYPE } from './ui/browser-view';
-import { browserManager } from './agent/browser-manager';
 import { publishService, unpublishService, getService } from '../../sbe-core/src/bridge';
 import type { SbeAgentApi, SbeLlmApi, SbeApstoreApi } from '../../sbe-core/src/types';
 import type { SourceAvailability } from './types/agent';
@@ -58,24 +56,6 @@ export default class SbeAgentPlugin extends Plugin {
       SBE_AGENT_VIEW_TYPE,
       (leaf: WorkspaceLeaf) => new AgentView(leaf, this),
     );
-
-    // Вкладка агент-браузера: открывается только агентом (тулы browser_*).
-    this.registerView(
-      BROWSER_VIEW_TYPE,
-      (leaf: WorkspaceLeaf) => new BrowserView(leaf),
-    );
-    browserManager.init({
-      activate: async () => {
-        const existing = this.app.workspace.getLeavesOfType(BROWSER_VIEW_TYPE)[0];
-        if (existing) {
-          this.app.workspace.revealLeaf(existing);
-          return;
-        }
-        const leaf = this.app.workspace.getLeaf(false);
-        await leaf.setViewState({ type: BROWSER_VIEW_TYPE, active: true });
-        this.app.workspace.revealLeaf(leaf);
-      },
-    });
 
     this.addSettingTab(new AgentSettingsTab(this.app, this));
 

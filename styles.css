@@ -978,6 +978,48 @@
   margin-top: 16px;
 }
 
+/* Панель агент-браузера ВНУТРИ вьюхи агента (2026-08-26) */
+.tn-ag-browser-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 42vh;
+  min-height: 0;
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 12px;
+}
+.tn-ag-browser-panel.hidden {
+  display: none;
+}
+.tn-ag-browser-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.tn-ag-browser-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: none;
+}
+.tn-ag-browser-wait {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--background-modifier-warning, rgba(230, 126, 34, 0.15));
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 13px;
+}
+.tn-ag-browser-wait.hidden {
+  display: none;
+}
+
 /* Глобальные скилы в настройках (Блок B6) */
 .tn-ag-skill-row {
   display: flex;
@@ -995,28 +1037,5 @@
 }
 .tn-ag-icon-btn:hover {
   color: var(--tn-danger, #e11b17);
-}
-
-
-/* Вкладка агент-браузера (MVP, 2026-08-26) */
-.tn-ag-browser {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.tn-ag-browser-frame {
-  flex: 1;
-  width: 100%;
-  border: none;
-}
-.tn-ag-browser-wait {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  background: var(--background-modifier-warning, rgba(230,126,34,0.15));
-  border-bottom: 1px solid var(--background-modifier-border);
-  font-size: 13px;
 }
 

@@ -1,6 +1,7 @@
-/** Менеджер агент-браузера (MVP, 2026-08-26): синглтон, управляющий вкладкой
- *  браузера агента (внутренний `<webview>` Obsidian). Вкладка живёт в sbe-agent
- *  и открывается ТОЛЬКО агентом (тулы browser_*). */
+/** Менеджер агент-браузера (2026-08-26): синглтон, управляющий встроенным в
+ *  вьюху агента `<webview>`. Браузер живёт ВНУТРИ вьюхи агента (панель под чатом),
+ *  а не в отдельной вкладке — так webview не разрушается при переключении вкладок
+ *  (иначе: «Error invoking remote method GUEST_VIEW_MANAGER_CALL»). */
 
 /** Минимальная поверхность `<webview>`, которой пользуется менеджер. */
 export interface WebViewEl extends HTMLElement {
@@ -10,38 +11,26 @@ export interface WebViewEl extends HTMLElement {
   getTitle: () => string;
 }
 
-/** Вкладка браузера, как её видит менеджер (без циклической зависимости). */
-export interface BrowserViewLike {
-  setWaiting(active: boolean): void;
+/** Хост браузера (вьюха агента): создаёт webview по запросу и управляет бейджем ожидания. */
+export interface BrowserHost {
+  ensureWebview: () => WebViewEl;
+  setWaiting: (active: boolean) => void;
 }
 
 class BrowserManager {
   private wv: WebViewEl | null = null;
-  private view: BrowserViewLike | null = null;
-  private activateFn: (() => Promise<void>) | null = null;
+  private host: BrowserHost | null = null;
   private domReadyWaiters: Array<() => void> = [];
   private userWaitResolvers: Array<() => void> = [];
 
-  init(opts: { activate: () => Promise<void> }): void {
-    this.activateFn = opts.activate;
-  }
-
-  setView(view: BrowserViewLike | null): void {
-    this.view = view;
-  }
-
-  /** Вызывается BrowserView.onOpen после создания <webview>. */
-  attachWebview(wv: WebViewEl): void {
-    this.wv = wv;
-    wv.addEventListener('dom-ready', () => this.resolveAll(this.domReadyWaiters));
-    this.resolveAll(this.domReadyWaiters);
-  }
-
-  detachWebview(): void {
-    this.wv = null;
-    // не вешаем ожидающие вызовы (browser_wait и т.п.)
-    this.resolveAll(this.userWaitResolvers);
-    this.resolveAll(this.domReadyWaiters);
+  /** Вьюха агента регистрирует себя как хост браузера. */
+  registerHost(host: BrowserHost | null): void {
+    this.host = host;
+    if (!host) {
+      this.wv = null;
+      this.resolveAll(this.userWaitResolvers);
+      this.resolveAll(this.domReadyWaiters);
+    }
   }
 
   private resolveAll(list: Array<() => void>): void {
@@ -52,29 +41,20 @@ class BrowserManager {
 
   private assertSupported(): void {
     if (!this.wv || typeof this.wv.executeJavaScript !== 'function') {
-      throw new Error('Вкладка браузера недоступна: <webview> не поддерживается в этой сборке Obsidian.');
+      throw new Error('Браузер агента недоступен: <webview> не поддерживается в этой сборке Obsidian.');
     }
   }
 
   async ensureOpen(): Promise<void> {
     if (this.wv) return;
-    if (this.activateFn) await this.activateFn();
-    await new Promise<void>((resolve) => {
-      if (this.wv) return resolve();
-      const iv = window.setInterval(() => {
-        if (this.wv) {
-          window.clearInterval(iv);
-          resolve();
-        }
-      }, 200);
-      window.setTimeout(() => {
-        window.clearInterval(iv);
-        resolve();
-      }, 15000);
-    });
-    if (!this.wv) {
-      throw new Error('Вкладка браузера не открылась (webview недоступен в этой сборке Obsidian).');
+    if (!this.host) throw new Error('Браузер агента недоступен: вьюха агента не инициализирована.');
+    this.wv = this.host.ensureWebview();
+    if (typeof this.wv.addEventListener !== 'function') {
+      throw new Error('Браузер агента недоступен: <webview> не поддерживается в этой сборке Obsidian.');
     }
+    this.wv.addEventListener('dom-ready', () => this.resolveAll(this.domReadyWaiters));
+    this.resolveAll(this.domReadyWaiters);
+    this.assertSupported();
   }
 
   private waitDomReady(timeoutMs = 30000): Promise<void> {
@@ -123,7 +103,7 @@ class BrowserManager {
   /** Ждёт, пока пользователь не нажмёт «Продолжить» (вход/капча/действие на странице). */
   async waitForUser(timeoutMs = 600000): Promise<void> {
     await this.ensureOpen();
-    this.view?.setWaiting(true);
+    this.host?.setWaiting(true);
     try {
       await new Promise<void>((resolve) => {
         let done = false;
@@ -137,7 +117,7 @@ class BrowserManager {
         this.userWaitResolvers.push(finish);
       });
     } finally {
-      this.view?.setWaiting(false);
+      this.host?.setWaiting(false);
     }
   }
 
