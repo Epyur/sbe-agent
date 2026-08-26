@@ -902,6 +902,8 @@
 .tn-ag-input-row {
   width: 100%;
   display: flex;
+  /* Чип вложения занимает свою строку целиком и не сжимает поле ввода */
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 8px;
   border-top: 1px solid var(--border);
@@ -911,6 +913,7 @@
 
 .tn-ag-attach-chip {
   flex-basis: 100%;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -918,6 +921,7 @@
   background: var(--bg);
   border-radius: var(--radius-sm);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 /* класс .tn-ag-attach-chip задаёт display:flex — он перекрывал UA-стиль [hidden]{display:none},
