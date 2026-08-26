@@ -6,6 +6,11 @@ import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 
 const SKILLS_ROOT = 'yourbase/sbe_agent/skills';
 
+/** Лимиты распаковки (защита от zip-бомб): файл 25 МБ, суммарно 100 МБ, 2000 файлов. */
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
+const MAX_FILES = 2000;
+
 function parseRepoUrl(url: string): { owner: string; repo: string } {
   const clean = url.trim().replace(/\/+$/, '').replace(/\.git$/, '');
   const m = clean.match(/github\.com\/([^/]+)\/([^/]+)/);
@@ -13,6 +18,18 @@ function parseRepoUrl(url: string): { owner: string; repo: string } {
   const m2 = clean.match(/^([^/]+)\/([^/]+)$/);
   if (m2) return { owner: m2[1], repo: m2[2] };
   throw new Error('Не распознан GitHub-репозиторий: ' + url);
+}
+
+/** Безопасный относительный путь записи ZIP: null, если путь выходит за пределы
+ *  каталога установки или некорректен (zip-slip — ревью B6). */
+function safeRelPath(raw: string): string | null {
+  const norm = raw.replace(/\\/g, '/').trim();
+  if (!norm || norm.startsWith('/') || /^[a-zA-Z]:/.test(norm)) return null;
+  const parts = norm.split('/');
+  for (const seg of parts) {
+    if (seg === '' || seg === '.' || seg === '..' || seg.includes('\x00')) return null;
+  }
+  return norm;
 }
 
 async function downloadZip(ctx: AgentToolContext, owner: string, repo: string): Promise<ArrayBuffer> {
@@ -29,9 +46,12 @@ async function downloadZip(ctx: AgentToolContext, owner: string, repo: string): 
 /** Скачивает скил(ы) из GitHub-репозитория в вольт (аналог `npx skills add ... --skill X`). */
 export async function addSkill(ctx: AgentToolContext, args: Record<string, unknown>): Promise<ToolCallResult> {
   const repoUrl = String(args.repo_url || '').trim();
-  const skillPath = String(args.skill_path || '').trim();
+  const skillPath = String(args.skill_path || '').trim().replace(/\\/g, '/');
   if (!repoUrl) {
     return { ok: false, summary: '', error: 'Требуется repo_url (например https://github.com/mattpocock/skills).' };
+  }
+  if (skillPath && (skillPath.startsWith('/') || /^[a-zA-Z]:/.test(skillPath) || skillPath.split('/').some(s => s === '' || s === '.' || s === '..'))) {
+    return { ok: false, summary: '', error: `Некорректный skill_path: «${skillPath}».` };
   }
   try {
     const { owner, repo } = parseRepoUrl(repoUrl);
@@ -67,11 +87,22 @@ async function extractFolder(
 ): Promise<void> {
   const prefix = folderPath.endsWith('/') ? folderPath : folderPath + '/';
   const entries = Object.keys(zip.files).filter(k => k.startsWith(prefix) && !zip.files[k].dir);
+  if (entries.length > MAX_FILES) {
+    throw new Error(`В архиве слишком много файлов (${entries.length}, максимум ${MAX_FILES}).`);
+  }
+  let totalBytes = 0;
   for (const entry of entries) {
-    const rel = entry.slice(prefix.length);
+    const rel = safeRelPath(entry.slice(prefix.length));
     if (!rel) continue;
     const file = zip.files[entry];
     const data = await file.async('arraybuffer');
+    totalBytes += data.byteLength;
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      throw new Error(`Суммарный размер архива превышает ${Math.round(MAX_TOTAL_BYTES / 1024 / 1024)} МБ.`);
+    }
+    if (data.byteLength > MAX_FILE_BYTES) {
+      throw new Error(`Файл «${rel}» слишком большой (максимум ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} МБ).`);
+    }
     await ctx.writeVaultFile(`${targetDir}/${rel}`, data);
   }
 }

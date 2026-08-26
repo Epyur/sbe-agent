@@ -64,7 +64,23 @@ export async function parseFile(
       sheets?: Array<{ name: string; rows: unknown[][] }>;
       data?: unknown;
     };
+
+    // Большие документы: управляемое усечение (начало + конец), чтобы текст
+    // гарантированно помещался в контекст LLM. Полный текст — в исходном файле.
+    const PARSE_TEXT_LIMIT = 24000;
+    if (parsed.text && parsed.text.length > PARSE_TEXT_LIMIT) {
+      const total = parsed.text.length;
+      const head = PARSE_TEXT_LIMIT - 1000;
+      const tail = 800;
+      parsed.text =
+        parsed.text.slice(0, head) +
+        `\n…[текст сокращён для анализа: показано начало и конец из ${total} символов; полный текст — в исходном файле]…\n` +
+        parsed.text.slice(-tail);
+    }
+
     let summary = `Файл **${fileName}** разобран (${parsed.kind}).`;
+    const textLen = parsed.text ? parsed.text.length : 0;
+    summary += ` Символов текста: ${textLen}.`;
     if (parsed.text) {
       const snippet = parsed.text.slice(0, 600);
       summary += `\n\n\`\`\`\n${snippet}${parsed.text.length > 600 ? '\n…' : ''}\n\`\`\``;
