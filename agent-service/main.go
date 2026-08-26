@@ -72,6 +72,11 @@ func main() {
 	mux.HandleFunc("GET /api/agent/permissions", s.requirePerm("admin")(s.handleListPermissions))
 	mux.HandleFunc("POST /api/agent/permissions", s.requirePerm("admin")(s.handleSetPermission))
 	mux.HandleFunc("GET /api/agent/permissions/me", s.requirePerm("viewer")(s.handleMyPermission))
+	// Глобальные скилы (Блок B6): список/чтение — viewer, запись — admin.
+	mux.HandleFunc("GET /api/agent/skills", s.requirePerm("viewer")(s.handleListGlobalSkills))
+	mux.HandleFunc("GET /api/agent/skills/{name}", s.requirePerm("viewer")(s.handleGetGlobalSkill))
+	mux.HandleFunc("POST /api/agent/skills", s.requirePerm("admin")(s.handleUpsertGlobalSkill))
+	mux.HandleFunc("DELETE /api/agent/skills/{name}", s.requirePerm("admin")(s.handleDeleteGlobalSkill))
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
@@ -97,7 +102,7 @@ CREATE TABLE IF NOT EXISTS agent_permissions (
 )`); err != nil {
 		return err
 	}
-	return nil
+	return s.migrateSkills(ctx)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
