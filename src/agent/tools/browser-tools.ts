@@ -2,6 +2,7 @@ import type { AgentToolContext } from '../tools-registry';
 import type { ToolCallResult } from '../../types/agent';
 import { browserManager } from '../browser-manager';
 import { request } from '../http';
+import { normalizeRecordsPath, appendRecordsJsonl } from './records-tools';
 import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 
 /** Ограничение на извлекаемый текст/ссылк, чтобы не перегружать контекст LLM. */
@@ -9,6 +10,18 @@ const EXTRACT_LIMIT = 30000;
 const LINKS_LIMIT = 100;
 /** Компактный лимит для fetch_url (HTML → сниппет, JSON → усечение). */
 const FETCH_TEXT_LIMIT = 12000;
+/** Максимальная длина примера записи в представлении для LLM. */
+const EXAMPLE_LIMIT = 600;
+
+/** Число из recordsTotal/recordsFiltered (DataTables присылает число или строку). */
+function toNumber(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
 
 /** Компактное представление HTML для LLM: script-src (там ищут AJAX/DataTables),
  *  первые ссылки и текст. Сырой HTML не отдаём — иначе транскрипт раздувается и
@@ -39,14 +52,15 @@ function compactHtml(html: string): string {
   return parts.join('\n\n');
 }
 
-/** Число из recordsTotal/recordsFiltered (DataTables присылает число или строку). */
-function toNumber(v: unknown): number | undefined {
-  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
-  if (typeof v === 'string') {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : undefined;
-  }
-  return undefined;
+interface JsonSummary {
+  kind: 'table' | 'json' | 'truncated';
+  /** Строки представления (компактные, для LLM и сообщения тула). */
+  parts: string[];
+  data: Record<string, unknown>;
+  /** Сколько страниц ещё осталось (для табличного ответа). */
+  remainingPages?: number;
+  /** Полный массив записей страницы (для табличного ответа). */
+  pageRecords?: unknown[];
 }
 
 /**
@@ -55,19 +69,20 @@ function toNumber(v: unknown): number | undefined {
  *    (recordsTotal/recordsFiltered/data.length) + 2–3 примера записей. Счётчики
  *    лежат в КОНЦЕ больших ответов — раньше модель их не видела и не знала,
  *    когда останавливать пагинацию.
- *  - полный массив records возвращается в data (модель сохраняет его тулом
- *    save_records_to_vault, а не держит превью в контексте).
+ *  - полный массив records возвращается в data (для save_records_to_vault) ИЛИ
+ *    сразу сохраняется тулом fetch_url в вольт (save_to) — см. fetchUrl.
  *  - обычный JSON — компактное превью как раньше.
  * Если JSON повреждён/обрезан (серверный лимит 1 МБ) — явно подсказываем
  * уменьшить length страницы до 50–100.
  */
-function summarizeJson(text: string): { view: string; data: Record<string, unknown> } {
+function summarizeJson(text: string): JsonSummary {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
     return {
-      view: 'JSON повреждён или обрезан (серверный лимит ответа 1 МБ). Уменьшите размер страницы: для DataTables используйте length=50–100 и запросите страницу заново.',
+      kind: 'truncated',
+      parts: ['JSON повреждён или обрезан (серверный лимит ответа 1 МБ). Уменьшите размер страницы: для DataTables используйте length=50–100 и запросите страницу заново.'],
       data: { json_truncated: true },
     };
   }
@@ -80,7 +95,8 @@ function summarizeJson(text: string): { view: string; data: Record<string, unkno
     const json = JSON.stringify(parsed);
     const view = json.slice(0, FETCH_TEXT_LIMIT);
     return {
-      view: `JSON (${json.length} симв.):\n${view}${json.length > FETCH_TEXT_LIMIT ? '\n…(обрезано)' : ''}`,
+      kind: 'json',
+      parts: [`JSON (${json.length} симв.):\n${view}${json.length > FETCH_TEXT_LIMIT ? '\n…(обрезано)' : ''}`],
       data: { json: view, total: json.length },
     };
   }
@@ -105,14 +121,21 @@ function summarizeJson(text: string): { view: string; data: Record<string, unkno
   if (recordsFiltered !== undefined) parts.push(`recordsFiltered (по фильтру): ${recordsFiltered}`);
   parts.push(`страница (data.length): ${pageCount}`);
   if (examples.length > 0) {
-    parts.push('Пример записей (первые 3):\n' + examples.map((e, i) => `${i + 1}) ${JSON.stringify(e)}`).join('\n'));
+    parts.push('Пример записей (первые 3, усечены):\n' + examples.map((e, i) => {
+      const s = JSON.stringify(e);
+      return `${i + 1}) ${s.length > EXAMPLE_LIMIT ? s.slice(0, EXAMPLE_LIMIT) + '…' : s}`;
+    }).join('\n'));
   }
+  let remainingPages: number | undefined;
   if (recordsFiltered !== undefined && recordsFiltered > pageCount) {
-    parts.push(`Осталось страниц: ${Math.ceil(recordsFiltered / Math.max(pageCount, 1))}. Сохрани records этой страницы в файл вольта (save_records_to_vault) и продолжай пагинацию start += ${pageCount} до recordsFiltered.`);
+    remainingPages = Math.ceil(recordsFiltered / Math.max(pageCount, 1));
   }
   return {
-    view: parts.join('\n'),
+    kind: 'table',
+    parts,
     data: { datatable: true, records_total: recordsTotal, records_filtered: recordsFiltered, page_records: pageCount, examples, records },
+    remainingPages,
+    pageRecords: records,
   };
 }
 
@@ -151,17 +174,61 @@ export async function fetchUrl(ctx: AgentToolContext, args: Record<string, unkno
     const text = data.text || '';
     const contentType = (data.content_type || '').split(';')[0].trim().toLowerCase();
 
+    // save_to: накопление записей DataTables-ответа в файл вольта БЕЗ прогона
+    // через контекст LLM (иначе большие записи ломают модель: она пытается их
+    // перегнать в тул огромным JSON-выводом → 504/зависание).
+    let saveTo = '';
+    if (args.save_to && typeof args.save_to === 'string' && args.save_to.trim()) {
+      try {
+        saveTo = normalizeRecordsPath(args.save_to);
+      } catch (e: unknown) {
+        return { ok: false, summary: '', error: errorMessage(e) };
+      }
+    }
+
     let view = '';
     let summary = '';
     let resultData: Record<string, unknown>;
     if (contentType.includes('json') || /^\s*[\[{]/.test(text)) {
-      // JSON/API — компактное представление для LLM (счётчики + примеры записей
-      // для DataTables; полные records — в data, чтобы сохранить их тулом
-      // save_records_to_vault, а не держать в контексте).
+      // JSON/API — компактное представление для LLM: счётчики + примеры записей
+      // (DataTables). С полным массивом records поступаем по-разному:
+      //  - save_to задан → records сразу сохраняются в вольт, в контекст НЕ идут;
+      //  - иначе → records в data (для save_records_to_vault), движок усечёт до 30К.
       const sum = summarizeJson(text);
-      view = sum.view;
-      summary = `HTTP ${data.status} (${contentType}), ${text.length} симв.\n${view}`;
-      resultData = { status: data.status, content_type: contentType, total: text.length, ...sum.data };
+      if (saveTo) {
+        if (sum.kind !== 'table') {
+          return { ok: false, summary: '', error: 'save_to применим только к табличным JSON-ответам (DataTables с массивом data). Этот ответ — не таблица.' };
+        }
+        const records = sum.pageRecords || [];
+        const savedTotal = await appendRecordsJsonl(ctx, saveTo, records);
+        const parts = [...sum.parts];
+        parts.push(`Сохранено в вольт: ${saveTo} (записей этой страницы: ${records.length}, всего в файле: ${savedTotal}).`);
+        if (sum.remainingPages !== undefined) {
+          parts.push(`Осталось страниц: ${sum.remainingPages}. Продолжай пагинацию start += ${records.length}, пока не соберёшь recordsFiltered записей.`);
+        }
+        view = parts.join('\n');
+        summary = `HTTP ${data.status} (${contentType}), ${text.length} симв. Записи сохранены в вольт.\n${view}`;
+        // В контекст records НЕ отдаём (они уже в файле) — только счётчики и итог.
+        resultData = {
+          status: data.status,
+          content_type: contentType,
+          total: text.length,
+          datatable: true,
+          records_total: sum.data.records_total,
+          records_filtered: sum.data.records_filtered,
+          page_records: sum.data.page_records,
+          saved_to: saveTo,
+          saved_added: records.length,
+          saved_total: savedTotal,
+        };
+      } else {
+        view = sum.parts.join('\n')
+          + (sum.remainingPages !== undefined
+            ? `\nОсталось страниц: ${sum.remainingPages}. Сохрани records этой страницы в файл вольта (save_records_to_vault) и продолжай пагинацию start += ${sum.pageRecords?.length || 0} до recordsFiltered.`
+            : '');
+        summary = `HTTP ${data.status} (${contentType}), ${text.length} симв.\n${view}`;
+        resultData = { status: data.status, content_type: contentType, total: text.length, ...sum.data };
+      }
     } else if (contentType.includes('html')) {
       // HTML — компактное представление (script-src/links/текст), без сырого HTML.
       view = compactHtml(text);

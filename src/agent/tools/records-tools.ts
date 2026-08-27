@@ -11,10 +11,10 @@ import { errorMessage } from '../../../../sbe-core/src/utils/errors';
  */
 
 /** Папка накопления записей в вольте. */
-const RECORDS_ROOT = 'yourbase/sbe_agent';
+export const RECORDS_ROOT = 'yourbase/sbe_agent';
 
 /** Нормализация пути накопления: только внутри yourbase/sbe_agent/, без «..», .jsonl. */
-function normalizeRecordsPath(p: string): string {
+export function normalizeRecordsPath(p: string): string {
   let clean = (p || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
   clean = clean.replace(/\.\./g, '');
   if (!clean) throw new Error('Требуется path (путь в вольте).');
@@ -26,7 +26,7 @@ function normalizeRecordsPath(p: string): string {
 }
 
 /** Чтение JSONL-файла накопления (битые строки пропускаются). */
-async function readJsonl(ctx: AgentToolContext, path: string): Promise<unknown[]> {
+export async function readJsonl(ctx: AgentToolContext, path: string): Promise<unknown[]> {
   if (!(await ctx.vaultExists(path))) return [];
   const text = await ctx.readVaultText(path);
   const out: unknown[] = [];
@@ -40,6 +40,24 @@ async function readJsonl(ctx: AgentToolContext, path: string): Promise<unknown[]
     }
   }
   return out;
+}
+
+/** Добавить записи в JSONL-файл вольта (перезапись если existing=false). Возвращает всего записей.
+ *  Дедупликация: повторные страницы (например повторный запрос после таймаута) не добавляются дважды. */
+export async function appendRecordsJsonl(ctx: AgentToolContext, path: string, records: unknown[], overwrite = false): Promise<number> {
+  let all: unknown[] = [];
+  if (!overwrite) all = await readJsonl(ctx, path);
+  const existing = new Set(all.map(r => JSON.stringify(r)));
+  const added = records.filter((r) => {
+    const key = JSON.stringify(r);
+    if (existing.has(key)) return false;
+    existing.add(key);
+    return true;
+  });
+  all.push(...added);
+  const content = all.map(r => JSON.stringify(r)).join('\n') + '\n';
+  await ctx.writeVaultFile(path, content);
+  return all.length;
 }
 
 /** Сохранить (накопить) записи страницы в JSONL-файл вольта. */
@@ -63,30 +81,50 @@ export async function saveRecordsToVault(ctx: AgentToolContext, args: Record<str
   const mode = args.mode === 'overwrite' ? 'overwrite' : 'append';
 
   try {
-    let all: unknown[] = [];
-    if (mode === 'append') all = await readJsonl(ctx, path);
-    const before = all.length;
-    all.push(...records);
-    const content = all.map(r => JSON.stringify(r)).join('\n') + '\n';
-    await ctx.writeVaultFile(path, content);
+    const before = await readJsonl(ctx, path);
+    const total = await appendRecordsJsonl(ctx, path, records, mode === 'overwrite');
     return {
       ok: true,
-      summary: `Сохранено ${records.length} записей (${mode}) в ${path}. Всего в файле: ${all.length}.`,
-      data: { path, mode, added: all.length - before, total: all.length },
+      summary: `Сохранено ${records.length} записей (${mode}) в ${path}. Всего в файле: ${total}.`,
+      data: { path, mode, added: total - before.length, total },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
   }
 }
 
-/** Значение ячейки для Excel (строки/числа; сложные — сериализуются). */
+/** Очистка текста ячеек от HTML-рудиментов (2026-08-27): теги <br>/<a>/<i>/<p>…,
+ *  HTML-сущности (&quot; &amp; &nbsp; …) → символы. Источники (реестры, DataTables)
+ *  возвращают текст с вёрсткой — в Excel он должен быть чистым. */
+function cleanCellText(v: string): string {
+  return v
+    // <br>/<br/> → перенос строки
+    .replace(/<br\s*\/?>/gi, '\n')
+    // закрывающие блочные теги → перенос строки (читаемость)
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n')
+    // остальные HTML-теги (с атрибутами) — убираем, содержимое сохраняем
+    .replace(/<\/?[a-z][a-z0-9]*[^>]*>/gi, '')
+    // HTML-сущности → символы (&amp; декодируем последним — он мог экранировать другие)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    // лишние пустые строки → не более двух подряд
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
+
+/** Значение ячейки для Excel (строки/числа; строки чистятся от HTML; сложные — сериализуются). */
 function cellValue(v: unknown): string | number {
   if (v === null || v === undefined) return '';
-  if (typeof v === 'string') return v;
+  if (typeof v === 'string') return cleanCellText(v);
   if (typeof v === 'number') return v;
   if (typeof v === 'boolean') return v ? 'да' : 'нет';
   try {
-    return JSON.stringify(v);
+    return cleanCellText(JSON.stringify(v));
   } catch {
     return String(v);
   }
