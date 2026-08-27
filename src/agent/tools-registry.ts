@@ -419,7 +419,7 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'fetch_url',
-        description: 'Скрытый серверный HTTP-запрос к сайту/API (быстро, без браузера). Подходит для страниц и JSON/API-эндпоинтов (в т.ч. DataTables: POST с draw/start/length и search[value], columns[...]). Метод GET/POST/PUT/PATCH/DELETE, можно передать body, headers, timeout_ms.',
+        description: 'Скрытый серверный HTTP-запрос к сайту/API (быстро, без браузера). Подходит для страниц и JSON/API-эндпоинтов (в т.ч. DataTables: POST с draw/start/length и search[value], columns[...]). Метод GET/POST/PUT/PATCH/DELETE, можно передать body, headers, timeout_ms. Для сбора списков постранично указывай save_to — путь в вольте (yourbase/sbe_agent/...): записи (data) каждой страницы сохраняются в файл САМИМ тулом, не проходя через контекст.',
         input_schema: {
           type: 'object',
           properties: {
@@ -428,6 +428,7 @@ export function createTools(): AgentTool[] {
             body: { type: 'string', description: 'Тело запроса (для POST/PUT/PATCH)' },
             headers: { type: 'object', description: 'Дополнительные HTTP-заголовки' },
             timeout_ms: { type: 'number', description: 'Таймаут в мс (по умолчанию 30000, максимум 120000)' },
+            save_to: { type: 'string', description: 'Путь в вольте для накопления записей DataTables-ответа (например yourbase/sbe_agent/nsopb_reestr/nsopb.jsonl). Обязан начинаться с yourbase/sbe_agent/. Записи этой страницы (data) добавляются в JSONL-файл, в контекст не попадают.' },
           },
           required: ['url'],
         },
