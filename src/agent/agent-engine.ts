@@ -7,10 +7,11 @@ import { errorMessage } from '../../../sbe-core/src/utils/errors';
 const DEFAULT_MAX_ITERATIONS = 15;
 
 /** Идемпотентные чтение/навигация — повтор одного вызова не считается зацикливанием
- *  (напр. повторное открытие страницы, ожидание пользователя, серверный fetch).
- *  Общий лимит шагов всё равно ограничивает (maxIterations). */
+ *  (напр. повторное открытие страницы, ожидание пользователя). Общий лимит шагов
+ *  всё равно ограничивает (maxIterations). fetch_url НЕ исключён: повторный запрос
+ *  с теми же параметрами возвращает тот же результат — это и есть зацикливание. */
 const IDEMPOTENT_TOOLS = new Set([
-  'browser_open', 'browser_wait', 'browser_extract', 'browser_links', 'browser_screenshot', 'fetch_url',
+  'browser_open', 'browser_wait', 'browser_extract', 'browser_links', 'browser_screenshot',
 ]);
 
 export interface RunAgentParams {

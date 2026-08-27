@@ -7,6 +7,37 @@ import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 /** Ограничение на извлекаемый текст/ссылк, чтобы не перегружать контекст LLM. */
 const EXTRACT_LIMIT = 30000;
 const LINKS_LIMIT = 100;
+/** Компактный лимит для fetch_url (HTML → сниппет, JSON → усечение). */
+const FETCH_TEXT_LIMIT = 12000;
+
+/** Компактное представление HTML для LLM: script-src (там ищут AJAX/DataTables),
+ *  первые ссылки и текст. Сырой HTML не отдаём — иначе транскрипт раздувается и
+ *  контекст LLM переполняется (400/502). */
+function compactHtml(html: string): string {
+  const scripts = Array.from(html.matchAll(/<script[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)).map(m => m[1]);
+  const links = Array.from(html.matchAll(/<a[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)).map(m => m[1]).slice(0, 40);
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts: string[] = [];
+  if (scripts.length) {
+    parts.push('SCRIPTS (подключаемые .js — загрузите их через fetch_url и ищите AJAX-эндпоинт, напр. DataTables ajax.url):\n' + scripts.join('\n'));
+  }
+  if (links.length) {
+    parts.push('LINKS (первые 40):\n' + links.join('\n'));
+  }
+  if (text) {
+    parts.push(`TEXT (${text.length} симв.):\n` + text.slice(0, 6000));
+  }
+  return parts.join('\n\n');
+}
 
 /** Скрытый серверный режим (fetch_url): HTTP-запрос через agent-service.
  *  Работает с обычными страницами и JSON/API-эндпоинтами (в т.ч. DataTables) —
@@ -41,13 +72,27 @@ export async function fetchUrl(ctx: AgentToolContext, args: Record<string, unkno
     }
     const data = JSON.parse(res.text) as { status: number; content_type: string; text: string };
     const text = data.text || '';
-    const contentType = (data.content_type || '').split(';')[0].trim();
-    const limited = text.slice(0, EXTRACT_LIMIT);
-    return {
-      ok: true,
-      summary: `HTTP ${data.status} (${contentType}), ${text.length} символов${text.length > limited.length ? ', показано начало' : ''}:\n${limited}`,
-      data: { status: data.status, content_type: contentType, text: limited, total: text.length },
-    };
+    const contentType = (data.content_type || '').split(';')[0].trim().toLowerCase();
+
+    let view = '';
+    let summary = '';
+    let resultData: Record<string, unknown>;
+    if (contentType.includes('json') || /^\s*[\[{]/.test(text)) {
+      // JSON/API — отдаём LLM сам JSON (усечённо): из него извлекаются записи.
+      view = text.slice(0, FETCH_TEXT_LIMIT);
+      summary = `HTTP ${data.status} (${contentType}), ${text.length} симв. JSON:\n${view}`;
+      resultData = { status: data.status, content_type: contentType, json: view, total: text.length };
+    } else if (contentType.includes('html')) {
+      // HTML — компактное представление (script-src/links/текст), без сырого HTML.
+      view = compactHtml(text);
+      summary = `HTTP ${data.status} (${contentType}), ${text.length} симв. HTML — компактное представление:\n${view}`;
+      resultData = { status: data.status, content_type: contentType, compact: view, total: text.length };
+    } else {
+      view = text.slice(0, FETCH_TEXT_LIMIT);
+      summary = `HTTP ${data.status} (${contentType}), ${text.length} симв.:\n${view}`;
+      resultData = { status: data.status, content_type: contentType, text: view, total: text.length };
+    }
+    return { ok: true, summary, data: resultData };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
   }
