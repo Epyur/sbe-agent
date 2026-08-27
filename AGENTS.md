@@ -62,6 +62,25 @@
 
 ## История работ
 
+### 2026-08-27 — v0.2.12 (fetch_url: компактное представление HTML, анти-цикл для fetch)
+- **Жалоба/диагноз (nsopb)**: агент сначала использовал fetch_url, но GET возвращал сырой
+  HTML (106998 симв.), а LLM видел обрезок с `<head>/CSS` — не мог найти DataTables-эндпоинт
+  `/ajax/datatables/reestr_documents.php`; 10+ раз перезапрашивал ту же страницу (fetch_url
+  был исключён из анти-цикл-гарда в v0.2.11), транскрипт раздувался → LLM 400 (context
+  length), затем 502.
+- **Фиксы**:
+  - `fetch_url` для HTML отдаёт **компактное представление** (`compactHtml`): SCRIPTS
+    (URL подключаемых .js — там ищется DataTables/AJAX), LINKS, текст (~6К). JSON — сам JSON
+    (усечён до 12К). Сырой HTML в контекст не попадает → транскрипт не раздувается.
+    Проверено на nsopb.html: SCRIPTS содержит `/js/datatables/reestr_documents.js` → по нему
+    агент находит `ajax.url: /ajax/datatables/reestr_documents.php`.
+  - `fetch_url` **возвращён в анти-цикл-гард** (повторный запрос с теми же параметрами —
+    детерминированный результат = зацикливание; браузерные навигационные тулы остались
+    идемпотентными).
+  - Промпт: пошаговая инструкция поиска AJAX-эндпоинта (script src → загрузка .js →
+    ajax.url → POST с draw/start/length/search[value]/columns).
+- `npx tsc --noEmit` EXIT=0; `npm run build` OK. Версия 0.2.11 → **0.2.12**.
+
 ### 2026-08-27 — v0.2.11 (скрытый серверный режим работы с сайтами — fetch_url; фиксы браузера)
 - **Скрытый режим (по умолчанию)**: новый серверный `POST /api/agent/fetch`
   (`agent-service/fetch.go`) — HTTP-запрос (GET/POST/PUT/PATCH/DELETE, body, headers,
