@@ -6,6 +6,13 @@ import { errorMessage } from '../../../sbe-core/src/utils/errors';
 
 const DEFAULT_MAX_ITERATIONS = 15;
 
+/** Идемпотентные чтение/навигация — повтор одного вызова не считается зацикливанием
+ *  (напр. повторное открытие страницы, ожидание пользователя, серверный fetch).
+ *  Общий лимит шагов всё равно ограничивает (maxIterations). */
+const IDEMPOTENT_TOOLS = new Set([
+  'browser_open', 'browser_wait', 'browser_extract', 'browser_links', 'browser_screenshot', 'fetch_url',
+]);
+
 export interface RunAgentParams {
   dialog: Dialog;
   userMessage: string;
@@ -121,12 +128,13 @@ export class AgentEngine {
           continue;
         }
 
-        // защита от зацикливания на одном и том же вызове
+        // защита от зацикливания на одном и том же вызове (кроме идемпотентных
+        // навигации/чтения — их повтор допустим, предел даёт maxIterations)
         const callKey = `${turn.tool}:${JSON.stringify(turn.arguments || {})}`;
         const count = (seenCalls.get(callKey) || 0) + 1;
         seenCalls.set(callKey, count);
-        if (count > 2) {
-          params.onAssistant('Достигнут лимит повторных вызовов инструмента. Уточните задачу.');
+        if (!IDEMPOTENT_TOOLS.has(turn.tool) && count > 2) {
+          params.onAssistant(`Защита от зацикливания: инструмент «${turn.tool}» вызван одинаково ${count} раз. Измените параметры или уточните задачу.`);
           return;
         }
 

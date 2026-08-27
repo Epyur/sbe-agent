@@ -1,11 +1,57 @@
 import type { AgentToolContext } from '../tools-registry';
 import type { ToolCallResult } from '../../types/agent';
 import { browserManager } from '../browser-manager';
+import { request } from '../http';
 import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 
 /** Ограничение на извлекаемый текст/ссылк, чтобы не перегружать контекст LLM. */
 const EXTRACT_LIMIT = 30000;
 const LINKS_LIMIT = 100;
+
+/** Скрытый серверный режим (fetch_url): HTTP-запрос через agent-service.
+ *  Работает с обычными страницами и JSON/API-эндпоинтами (в т.ч. DataTables) —
+ *  браузер для этого не нужен. */
+export async function fetchUrl(ctx: AgentToolContext, args: Record<string, unknown>): Promise<ToolCallResult> {
+  const url = String(args.url || '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, summary: '', error: 'Нужен полный URL (http/https).' };
+  }
+  try {
+    const token = await ctx.getToken('agent');
+    const payload: Record<string, unknown> = {
+      method: String(args.method || 'GET').toUpperCase(),
+      url,
+    };
+    if (args.body !== undefined && args.body !== null) payload.body = String(args.body);
+    if (args.headers && typeof args.headers === 'object') payload.headers = args.headers;
+    if (typeof args.timeout_ms === 'number') payload.timeout_ms = args.timeout_ms;
+
+    const res = await request({
+      url: `${ctx.getApiUrl()}/api/agent/fetch`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }, 120000);
+    if (res.status === 401) return { ok: false, summary: '', error: 'Ключ доступа недействителен. Запросите новый ключ в ЦУП.' };
+    if (res.status === 403) return { ok: false, summary: '', error: 'Нет прав доступа (агент).' };
+    if (res.status !== 200) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (JSON.parse(res.text) as { error?: string }).error || msg; } catch { /* ignore */ }
+      return { ok: false, summary: '', error: msg };
+    }
+    const data = JSON.parse(res.text) as { status: number; content_type: string; text: string };
+    const text = data.text || '';
+    const contentType = (data.content_type || '').split(';')[0].trim();
+    const limited = text.slice(0, EXTRACT_LIMIT);
+    return {
+      ok: true,
+      summary: `HTTP ${data.status} (${contentType}), ${text.length} символов${text.length > limited.length ? ', показано начало' : ''}:\n${limited}`,
+      data: { status: data.status, content_type: contentType, text: limited, total: text.length },
+    };
+  } catch (e: unknown) {
+    return { ok: false, summary: '', error: errorMessage(e) };
+  }
+}
 
 /** Переход на URL (без подтверждения). */
 export async function browserOpen(ctx: AgentToolContext, args: Record<string, unknown>): Promise<ToolCallResult> {
