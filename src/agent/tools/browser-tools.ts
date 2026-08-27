@@ -39,6 +39,83 @@ function compactHtml(html: string): string {
   return parts.join('\n\n');
 }
 
+/** Число из recordsTotal/recordsFiltered (DataTables присылает число или строку). */
+function toNumber(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Компактное представление JSON для LLM (2026-08-27):
+ *  - DataTables/табличные ответы ({data:[...]} или массив): извлекаем СЧЁТЧИКИ
+ *    (recordsTotal/recordsFiltered/data.length) + 2–3 примера записей. Счётчики
+ *    лежат в КОНЦЕ больших ответов — раньше модель их не видела и не знала,
+ *    когда останавливать пагинацию.
+ *  - полный массив records возвращается в data (модель сохраняет его тулом
+ *    save_records_to_vault, а не держит превью в контексте).
+ *  - обычный JSON — компактное превью как раньше.
+ * Если JSON повреждён/обрезан (серверный лимит 1 МБ) — явно подсказываем
+ * уменьшить length страницы до 50–100.
+ */
+function summarizeJson(text: string): { view: string; data: Record<string, unknown> } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {
+      view: 'JSON повреждён или обрезан (серверный лимит ответа 1 МБ). Уменьшите размер страницы: для DataTables используйте length=50–100 и запросите страницу заново.',
+      data: { json_truncated: true },
+    };
+  }
+
+  const isTableLike =
+    Array.isArray(parsed) ||
+    (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).data));
+
+  if (!isTableLike) {
+    const json = JSON.stringify(parsed);
+    const view = json.slice(0, FETCH_TEXT_LIMIT);
+    return {
+      view: `JSON (${json.length} симв.):\n${view}${json.length > FETCH_TEXT_LIMIT ? '\n…(обрезано)' : ''}`,
+      data: { json: view, total: json.length },
+    };
+  }
+
+  let records: unknown[];
+  let recordsTotal: number | undefined;
+  let recordsFiltered: number | undefined;
+  if (Array.isArray(parsed)) {
+    records = parsed;
+    recordsTotal = recordsFiltered = records.length;
+  } else {
+    const obj = parsed as Record<string, unknown>;
+    records = Array.isArray(obj.data) ? (obj.data as unknown[]) : [];
+    recordsTotal = toNumber(obj.recordsTotal);
+    recordsFiltered = toNumber(obj.recordsFiltered);
+  }
+  const pageCount = records.length;
+  const examples = records.slice(0, 3);
+
+  const parts: string[] = ['DataTables/табличный JSON:'];
+  if (recordsTotal !== undefined) parts.push(`recordsTotal (всего в базе): ${recordsTotal}`);
+  if (recordsFiltered !== undefined) parts.push(`recordsFiltered (по фильтру): ${recordsFiltered}`);
+  parts.push(`страница (data.length): ${pageCount}`);
+  if (examples.length > 0) {
+    parts.push('Пример записей (первые 3):\n' + examples.map((e, i) => `${i + 1}) ${JSON.stringify(e)}`).join('\n'));
+  }
+  if (recordsFiltered !== undefined && recordsFiltered > pageCount) {
+    parts.push(`Осталось страниц: ${Math.ceil(recordsFiltered / Math.max(pageCount, 1))}. Сохрани records этой страницы в файл вольта (save_records_to_vault) и продолжай пагинацию start += ${pageCount} до recordsFiltered.`);
+  }
+  return {
+    view: parts.join('\n'),
+    data: { datatable: true, records_total: recordsTotal, records_filtered: recordsFiltered, page_records: pageCount, examples, records },
+  };
+}
+
 /** Скрытый серверный режим (fetch_url): HTTP-запрос через agent-service.
  *  Работает с обычными страницами и JSON/API-эндпоинтами (в т.ч. DataTables) —
  *  браузер для этого не нужен. */
@@ -78,10 +155,13 @@ export async function fetchUrl(ctx: AgentToolContext, args: Record<string, unkno
     let summary = '';
     let resultData: Record<string, unknown>;
     if (contentType.includes('json') || /^\s*[\[{]/.test(text)) {
-      // JSON/API — отдаём LLM сам JSON (усечённо): из него извлекаются записи.
-      view = text.slice(0, FETCH_TEXT_LIMIT);
-      summary = `HTTP ${data.status} (${contentType}), ${text.length} симв. JSON:\n${view}`;
-      resultData = { status: data.status, content_type: contentType, json: view, total: text.length };
+      // JSON/API — компактное представление для LLM (счётчики + примеры записей
+      // для DataTables; полные records — в data, чтобы сохранить их тулом
+      // save_records_to_vault, а не держать в контексте).
+      const sum = summarizeJson(text);
+      view = sum.view;
+      summary = `HTTP ${data.status} (${contentType}), ${text.length} симв.\n${view}`;
+      resultData = { status: data.status, content_type: contentType, total: text.length, ...sum.data };
     } else if (contentType.includes('html')) {
       // HTML — компактное представление (script-src/links/текст), без сырого HTML.
       view = compactHtml(text);
