@@ -5,7 +5,7 @@ import { getTasks } from './tools/tasks-tool';
 import { addSkill, listSkills, readSkill } from './tools/skills-tools';
 import { readLocalCache } from './tools/local-cache';
 import { saveRule, listRules, readRule } from './tools/rules-tools';
-import { browserOpen, browserExtract, browserLinks, browserScreenshot, browserClick, browserType, browserWait } from './tools/browser-tools';
+import { browserOpen, browserExtract, browserLinks, browserScreenshot, browserClick, browserType, browserWait, fetchUrl } from './tools/browser-tools';
 
 /** Контекст исполнения тулов (предоставляет плагин). */
 export interface AgentToolContext {
@@ -414,6 +414,24 @@ export function createTools(): AgentTool[] {
         },
       },
       execute: (ctx, args) => readRule(ctx, args),
+    },
+    {
+      schema: {
+        name: 'fetch_url',
+        description: 'Скрытый серверный HTTP-запрос к сайту/API (быстро, без браузера). Подходит для страниц и JSON/API-эндпоинтов (в т.ч. DataTables: POST с draw/start/length и search[value], columns[...]). Метод GET/POST/PUT/PATCH/DELETE, можно передать body, headers, timeout_ms.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            method: { type: 'string', description: 'GET (по умолчанию) / POST / PUT / PATCH / DELETE' },
+            url: { type: 'string', description: 'Полный URL' },
+            body: { type: 'string', description: 'Тело запроса (для POST/PUT/PATCH)' },
+            headers: { type: 'object', description: 'Дополнительные HTTP-заголовки' },
+            timeout_ms: { type: 'number', description: 'Таймаут в мс (по умолчанию 30000, максимум 120000)' },
+          },
+          required: ['url'],
+        },
+      },
+      execute: (ctx, args) => fetchUrl(ctx, args),
     },
     {
       schema: {
