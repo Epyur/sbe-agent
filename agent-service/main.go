@@ -77,6 +77,8 @@ func main() {
 	mux.HandleFunc("GET /api/agent/skills/{name}", s.requirePerm("viewer")(s.handleGetGlobalSkill))
 	mux.HandleFunc("POST /api/agent/skills", s.requirePerm("admin")(s.handleUpsertGlobalSkill))
 	mux.HandleFunc("DELETE /api/agent/skills/{name}", s.requirePerm("admin")(s.handleDeleteGlobalSkill))
+	// Скрытый серверный режим работы с сайтами (fetch_url): GET/POST/JSON.
+	mux.HandleFunc("POST /api/agent/fetch", s.requirePerm("viewer")(s.handleFetch))
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
