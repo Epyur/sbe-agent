@@ -6,6 +6,7 @@ import { addSkill, listSkills, readSkill } from './tools/skills-tools';
 import { readLocalCache } from './tools/local-cache';
 import { saveRule, listRules, readRule } from './tools/rules-tools';
 import { browserOpen, browserExtract, browserLinks, browserScreenshot, browserClick, browserType, browserWait, fetchUrl } from './tools/browser-tools';
+import { saveRecordsToVault, buildXlsxFromVault } from './tools/records-tools';
 
 /** Контекст исполнения тулов (предоставляет плагин). */
 export interface AgentToolContext {
@@ -432,6 +433,39 @@ export function createTools(): AgentTool[] {
         },
       },
       execute: (ctx, args) => fetchUrl(ctx, args),
+    },
+    {
+      schema: {
+        name: 'save_records_to_vault',
+        description: 'Сохранить (накопить) записи одной страницы в файл вольта (JSONL). Используй при сборе списков постранично (например DataTables): каждый ответ fetch_url содержит records (data) страницы — передавай их в records, а path — общий файл накопления. Так данные не раздувают контекст. mode="overwrite" — начать файл заново.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Путь в вольте, например yourbase/sbe_agent/nsopb_reestr/nsopb.jsonl (обязан начинаться с yourbase/sbe_agent/)' },
+            records: { type: 'array', description: 'Записи этой страницы: массив объектов ИЛИ массив строк-массивов (data из ответа DataTables)' },
+            mode: { type: 'string', enum: ['append', 'overwrite'], description: 'append (по умолчанию) — добавить к файлу; overwrite — перезаписать файл' },
+          },
+          required: ['path', 'records'],
+        },
+      },
+      execute: (ctx, args) => saveRecordsToVault(ctx, args),
+    },
+    {
+      schema: {
+        name: 'build_xlsx_from_vault',
+        description: 'Собрать Excel-файл из накопленных записей (JSONL-файл из save_records_to_vault). Читает файл вольта целиком, формирует таблицу и возвращает ссылку на скачивание. Вызывай ПОСЛЕ того, как постранично собраны все записи (до recordsFiltered).',
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Путь к файлу накопления (тот же, что в save_records_to_vault)' },
+            file_name: { type: 'string', description: 'Имя скачиваемого файла без .xlsx (по умолчанию records)' },
+            sheet_name: { type: 'string', description: 'Название листа (по умолчанию «Данные»)' },
+            headers: { type: 'array', items: { type: 'string' }, description: 'Заголовки колонок, если записи — массивы (для объектов колонки берутся из ключей)' },
+          },
+          required: ['path'],
+        },
+      },
+      execute: (ctx, args) => buildXlsxFromVault(ctx, args),
     },
     {
       schema: {
