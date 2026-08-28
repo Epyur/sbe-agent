@@ -48,21 +48,59 @@ type HtmlImage struct {
 	Caption string `json:"caption"`
 }
 
+// Paragraph — абзац документа. В JSON может быть строкой (простой текст) ИЛИ
+// объектом с полями оформления (2026-08-28).
+type Paragraph struct {
+	Text      string `json:"text"`
+	Align     string `json:"align"`     // left | center | right | justify
+	Bold      bool   `json:"bold"`      // жирный
+	Italic    bool   `json:"italic"`    // курсив
+	Underline bool   `json:"underline"` // подчёркнутый
+	Size      *int   `json:"size"`      // размер шрифта, pt
+	Highlight string `json:"highlight"` // выделение фона: Word-цвет (yellow, green, …) или hex #RRGGBB
+	List      string `json:"list"`      // bullet | number — маркированный/нумерованный список
+}
+
+// UnmarshalJSON принимает и строку («текст»), и объект ({text, bold, …}).
+func (p *Paragraph) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		p.Text = s
+		return nil
+	}
+	type paragraphAlias Paragraph
+	var a paragraphAlias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return err
+	}
+	*p = Paragraph(a)
+	return nil
+}
+
 type Section struct {
-	Heading    string   `json:"heading"`
-	Paragraphs []string `json:"paragraphs"`
-	Table      *Table   `json:"table"`
+	Heading    string      `json:"heading"`
+	Level      int         `json:"level"` // уровень заголовка 1–6 (по умолчанию 1)
+	Paragraphs []Paragraph `json:"paragraphs"`
+	Table      *Table      `json:"table"`
 }
 
 type Table struct {
-	Headers []string   `json:"headers"`
-	Rows    [][]string `json:"rows"`
+	Headers      []string   `json:"headers"`
+	Rows         [][]string `json:"rows"`
+	Style        string     `json:"style"`         // plain | grid | fancy (по умолчанию grid)
+	ColWidths    []float64  `json:"col_widths"`    // ширины колонок, см (docx)
+	RepeatHeader bool       `json:"repeat_header"` // повторять шапку на каждой странице (docx)
 }
 
 type Sheet struct {
-	Name    string     `json:"name"`
-	Headers []string   `json:"headers"`
-	Rows    [][]string `json:"rows"`
+	Name         string     `json:"name"`
+	Headers      []string   `json:"headers"`
+	Rows         [][]string `json:"rows"`
+	Title        string     `json:"title"`         // титульный ряд (объединённый по ширине листа)
+	AutoFilter   bool       `json:"auto_filter"`   // фильтр по колонкам
+	FreezeHeader bool       `json:"freeze_header"` // закрепить шапку при прокрутке
+	ColWidths    []float64  `json:"col_widths"`    // ширины колонок (excelize width)
+	Wrap         bool       `json:"wrap"`          // перенос текста в ячейках
 }
 
 type GenerateRequest struct {
@@ -299,6 +337,237 @@ func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) {
 
 // ================= DOCX =================
 
+// Допустимые цвета выделения Word (w:highlight) + поддержка hex-цветов.
+var highlightColors = map[string]bool{
+	"black": true, "blue": true, "cyan": true, "green": true, "magenta": true,
+	"red": true, "yellow": true, "white": true, "darkblue": true, "darkcyan": true,
+	"darkgreen": true, "darkmagenta": true, "darkred": true, "darkyellow": true,
+	"darkgray": true, "lightgray": true, "none": true,
+}
+
+// jcVal маппит выравнивание абзаца в OOXML w:jc.
+func jcVal(align string) string {
+	switch strings.ToLower(strings.TrimSpace(align)) {
+	case "center":
+		return "center"
+	case "right":
+		return "right"
+	case "justify", "both":
+		return "both"
+	default:
+		return ""
+	}
+}
+
+// runPropsXML — свойства начертания/размера/выделения (w:rPr).
+func runPropsXML(p Paragraph) string {
+	var sb strings.Builder
+	if p.Bold {
+		sb.WriteString("<w:b/>")
+	}
+	if p.Italic {
+		sb.WriteString("<w:i/>")
+	}
+	if p.Underline {
+		sb.WriteString("<w:u/>")
+	}
+	if h := strings.ToLower(strings.TrimSpace(p.Highlight)); h != "" {
+		if highlightColors[h] {
+			sb.WriteString(`<w:highlight w:val="` + h + `"/>`)
+		} else if len(h) == 7 && h[0] == '#' {
+			// hex-цвет → цвет текста (Word поддерживает выделение только именованными цветами)
+			sb.WriteString(`<w:color w:val="` + strings.ToUpper(h[1:]) + `"/>`)
+		}
+	}
+	if p.Size != nil && *p.Size >= 6 && *p.Size <= 96 {
+		half := *p.Size * 2
+		sb.WriteString(fmt.Sprintf(`<w:sz w:val="%d"/><w:szCs w:val="%d"/>`, half, half))
+	}
+	if sb.Len() == 0 {
+		return ""
+	}
+	return "<w:rPr>" + sb.String() + "</w:rPr>"
+}
+
+// paragraphXML — абзац основного текста (стиль Normal: по ширине, полуторный
+// интервал, отступ первой строки 1,25 см) с выравниванием, списком и начертанием.
+func paragraphXML(p Paragraph) string {
+	var pPr strings.Builder
+	pPr.WriteString(`<w:pStyle w:val="Normal"/>`)
+	if j := jcVal(p.Align); j != "" {
+		pPr.WriteString(`<w:jc w:val="` + j + `"/>`)
+	}
+	switch p.List {
+	case "bullet":
+		pPr.WriteString(`<w:ind w:firstLine="0"/>`)
+		pPr.WriteString(`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`)
+	case "number":
+		pPr.WriteString(`<w:ind w:firstLine="0"/>`)
+		pPr.WriteString(`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>`)
+	}
+	var sb strings.Builder
+	if pPr.Len() > 0 {
+		sb.WriteString("<w:pPr>" + pPr.String() + "</w:pPr>")
+	}
+	sb.WriteString("<w:r>")
+	if rpr := runPropsXML(p); rpr != "" {
+		sb.WriteString(rpr)
+	}
+	sb.WriteString(`<w:t xml:space="preserve">` + escapeXML(p.Text) + `</w:t></w:r>`)
+	return "<w:p>" + sb.String() + "</w:p>"
+}
+
+// docxTableCellXML — ячейка таблицы Word: шрифт 10pt, одинарный интервал, без
+// отступа первой строки; шапка — жирная по центру.
+func docxTableCellXML(text string, header bool, shading string) string {
+	pPr := `<w:spacing w:line="240" w:lineRule="auto"/><w:ind w:firstLine="0"/>`
+	if header {
+		pPr += `<w:jc w:val="center"/>`
+	}
+	rPr := `<w:rFonts w:ascii="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="20"/><w:szCs w:val="20"/>`
+	if header {
+		rPr += `<w:b/><w:color w:val="1F3864"/>`
+	}
+	return `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/>` + shading + `</w:tcPr>` +
+		`<w:p><w:pPr>` + pPr + `</w:pPr><w:r><w:rPr>` + rPr + `</w:rPr><w:t xml:space="preserve">` + escapeXML(text) + `</w:t></w:r></w:p></w:tc>`
+}
+
+// headingXML — заголовок уровня 1–6 (центрированный, см. styles.xml).
+func headingXML(text string, level int) string {
+	if level < 2 || level > 6 {
+		level = 1
+	}
+	return `<w:p><w:pPr><w:pStyle w:val="Heading` + fmt.Sprintf("%d", level) + `"/></w:pPr><w:r><w:t xml:space="preserve">` + escapeXML(text) + `</w:t></w:r></w:p>`
+}
+
+// tableXML — таблица со стилями: plain (без границ), grid (границы, по умолчанию),
+// fancy (границы + заливка шапки); ширины колонок и повтор шапки — опционально.
+func tableXML(t Table) string {
+	style := strings.ToLower(strings.TrimSpace(t.Style))
+	if style == "" {
+		style = "grid"
+	}
+	var sb strings.Builder
+	sb.WriteString(`<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>`)
+	if style != "plain" {
+		sb.WriteString(`<w:tblBorders>`)
+		for _, e := range []string{"top", "left", "bottom", "right", "insideH", "insideV"} {
+			sb.WriteString(`<w:` + e + ` w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>`)
+		}
+		sb.WriteString(`</w:tblBorders>`)
+	}
+	sb.WriteString(`</w:tblPr>`)
+
+	cols := len(t.Headers)
+	if cols == 0 {
+		cols = 1
+	}
+	if len(t.ColWidths) >= cols {
+		sb.WriteString(`<w:tblGrid>`)
+		for _, cw := range t.ColWidths {
+			w := int(cw * 567) // см → twips (1 см ≈ 567)
+			if w < 500 {
+				w = 500
+			}
+			sb.WriteString(fmt.Sprintf(`<w:gridCol w:w="%d"/>`, w))
+		}
+		sb.WriteString(`</w:tblGrid>`)
+	}
+
+	if len(t.Headers) > 0 {
+		sb.WriteString(`<w:tr>`)
+		if t.RepeatHeader {
+			sb.WriteString(`<w:trPr><w:tblHeader/></w:trPr>`)
+		}
+		shading := ""
+		if style == "fancy" {
+			shading = `<w:shd w:val="clear" w:color="auto" w:fill="D9E2F3"/>`
+		}
+		for _, h := range t.Headers {
+			sb.WriteString(docxTableCellXML(h, true, shading))
+		}
+		sb.WriteString(`</w:tr>`)
+	}
+	for _, row := range t.Rows {
+		sb.WriteString(`<w:tr>`)
+		for _, cell := range row {
+			sb.WriteString(docxTableCellXML(cell, false, ""))
+		}
+		sb.WriteString(`</w:tr>`)
+	}
+	sb.WriteString(`</w:tbl>`)
+	sb.WriteString(`<w:p/>`)
+	return sb.String()
+}
+
+// numberingXML — определения списков: bullet (numId 1) и decimal (numId 2).
+const numberingXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0">
+    <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr><w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:hint="default"/></w:rPr></w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="1">
+    <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+  <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
+</w:numbering>`
+
+// stylesXML — стандартное оформление Word (ГОСТ 7.32/2.105), применяется по
+// умолчанию, если пользователь не задал своё: Times New Roman 14pt, полуторный
+// интервал (line=360), без интервалов между абзацами, отступ первой строки
+// 1,25 см (firstLine=709 twips), выравнивание по ширине; заголовки по центру.
+// Явное оформление абзаца (align/bold/size/…) переопределяет эти умолчания.
+const stylesXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault><w:rPr>
+      <w:rFonts w:ascii="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>
+      <w:sz w:val="28"/><w:szCs w:val="28"/>
+    </w:rPr></w:rPrDefault>
+    <w:pPrDefault><w:pPr/></w:pPrDefault>
+  </w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="0" w:after="0" w:line="360" w:lineRule="auto"/><w:ind w:firstLine="709"/><w:jc w:val="both"/></w:pPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Title">
+    <w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="0" w:after="240" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/><w:ind w:firstLine="0"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="36"/><w:szCs w:val="36"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1">
+    <w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="240" w:after="120" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="0"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2">
+    <w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="240" w:after="120" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="1"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="30"/><w:szCs w:val="30"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading3">
+    <w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="240" w:after="120" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="2"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading4">
+    <w:name w:val="heading 4"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="240" w:after="120" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="3"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="26"/><w:szCs w:val="26"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading5">
+    <w:name w:val="heading 5"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="240" w:after="120" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="4"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading6">
+    <w:name w:val="heading 6"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:spacing w:before="240" w:after="120" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="5"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr>
+  </w:style>
+</w:styles>`
+
 func renderDocx(spec DocSpec) ([]byte, error) {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
@@ -311,38 +580,18 @@ func renderDocx(spec DocSpec) ([]byte, error) {
 	}
 	for _, s := range spec.Sections {
 		if s.Heading != "" {
-			sb.WriteString(`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t xml:space="preserve">`)
-			sb.WriteString(escapeXML(s.Heading))
-			sb.WriteString(`</w:t></w:r></w:p>`)
+			sb.WriteString(headingXML(s.Heading, s.Level))
 		}
 		for _, p := range s.Paragraphs {
-			sb.WriteString(`<w:p><w:r><w:t xml:space="preserve">`)
-			sb.WriteString(escapeXML(p))
-			sb.WriteString(`</w:t></w:r></w:p>`)
+			sb.WriteString(paragraphXML(p))
 		}
 		if s.Table != nil && len(s.Table.Headers) > 0 {
-			sb.WriteString(`<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>`)
-			sb.WriteString(`<w:tr>`)
-			for _, h := range s.Table.Headers {
-				sb.WriteString(`<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr><w:p><w:r><w:b/><w:t xml:space="preserve">`)
-				sb.WriteString(escapeXML(h))
-				sb.WriteString(`</w:t></w:r></w:p></w:tc>`)
-			}
-			sb.WriteString(`</w:tr>`)
-			for _, row := range s.Table.Rows {
-				sb.WriteString(`<w:tr>`)
-				for _, cell := range row {
-					sb.WriteString(`<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr><w:p><w:r><w:t xml:space="preserve">`)
-					sb.WriteString(escapeXML(cell))
-					sb.WriteString(`</w:t></w:r></w:p></w:tc>`)
-				}
-				sb.WriteString(`</w:tr>`)
-			}
-			sb.WriteString(`</w:tbl>`)
-			sb.WriteString(`<w:p/>`)
+			sb.WriteString(tableXML(*s.Table))
 		}
 	}
-	sb.WriteString(`<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr>`)
+	// Поля страницы (ГОСТ): левое 30 мм (1701 twips), правое 10 мм (567),
+	// верхнее/нижнее 20 мм (1134).
+	sb.WriteString(`<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="567" w:bottom="1134" w:left="1701" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`)
 	sb.WriteString(`</w:body></w:document>`)
 
 	var buf bytes.Buffer
@@ -352,15 +601,25 @@ func renderDocx(spec DocSpec) ([]byte, error) {
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 </Types>`
 	rels := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
 </Relationships>`
+	docRels := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`
 	files := map[string]string{
-		"[Content_Types].xml": ct,
-		"_rels/.rels":         rels,
-		"word/document.xml":   sb.String(),
+		"[Content_Types].xml":          ct,
+		"_rels/.rels":                  rels,
+		"word/_rels/document.xml.rels": docRels,
+		"word/numbering.xml":           numberingXML,
+		"word/styles.xml":              stylesXML,
+		"word/document.xml":            sb.String(),
 	}
 	for name, content := range files {
 		w, err := zw.Create(name)
@@ -455,24 +714,105 @@ func sheetName(name string) string {
 	return n
 }
 
-func writeXlsxSheet(f *excelize.File, name string, sh Sheet) {
-	if len(sh.Headers) > 0 {
-		row := make([]any, 0, len(sh.Headers))
-		for _, h := range sh.Headers {
-			row = append(row, h)
-		}
-		_ = f.SetSheetRow(name, "A1", &row)
+// thinBorders — тонкие серые границы для ячеек таблицы.
+func thinBorders() []excelize.Border {
+	return []excelize.Border{
+		{Type: "left", Style: 1, Color: "BFBFBF"},
+		{Type: "right", Style: 1, Color: "BFBFBF"},
+		{Type: "top", Style: 1, Color: "BFBFBF"},
+		{Type: "bottom", Style: 1, Color: "BFBFBF"},
 	}
+}
+
+func writeXlsxSheet(f *excelize.File, name string, sh Sheet) {
+	// Стили: титульный ряд, шапка, данные.
+	titleStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Size: 14, Color: "1F3864"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"D9E2F3"}},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		Border:    thinBorders(),
+	})
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Bold: true, Color: "FFFFFF"},
+		Fill:      excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"4472C4"}},
+		Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center", WrapText: sh.Wrap},
+		Border:    thinBorders(),
+	})
+	dataStyle, _ := f.NewStyle(&excelize.Style{
+		Alignment: &excelize.Alignment{Vertical: "top", WrapText: sh.Wrap},
+		Border:    thinBorders(),
+	})
+
+	rowOffset := 0
+	if sh.Title != "" {
+		cols := len(sh.Headers)
+		if cols == 0 {
+			cols = 1
+		}
+		lastLetter, _ := excelize.ColumnNumberToName(cols)
+		_ = f.SetCellValue(name, "A1", sh.Title)
+		_ = f.MergeCell(name, "A1", fmt.Sprintf("%s1", lastLetter))
+		_ = f.SetCellStyle(name, "A1", fmt.Sprintf("%s1", lastLetter), titleStyle)
+		_ = f.SetRowHeight(name, 1, 24)
+		rowOffset = 1
+	}
+
+	headerRow := rowOffset + 1
+	if len(sh.Headers) > 0 {
+		for c, h := range sh.Headers {
+			cell, err := excelize.CoordinatesToCellName(c+1, headerRow)
+			if err != nil {
+				continue
+			}
+			_ = f.SetCellValue(name, cell, h)
+		}
+		lastLetter, _ := excelize.ColumnNumberToName(len(sh.Headers))
+		_ = f.SetCellStyle(name, fmt.Sprintf("A%d", headerRow), fmt.Sprintf("%s%d", lastLetter, headerRow), headerStyle)
+		_ = f.SetRowHeight(name, headerRow, 20)
+	}
+
 	for i, r := range sh.Rows {
-		cell, err := excelize.CoordinatesToCellName(1, i+2)
-		if err != nil {
+		if len(r) == 0 {
 			continue
 		}
-		row := make([]any, 0, len(r))
-		for _, v := range r {
-			row = append(row, v)
+		rowNum := headerRow + 1 + i
+		for c, v := range r {
+			cell, err := excelize.CoordinatesToCellName(c+1, rowNum)
+			if err != nil {
+				continue
+			}
+			_ = f.SetCellValue(name, cell, v)
 		}
-		_ = f.SetSheetRow(name, cell, &row)
+		start, _ := excelize.CoordinatesToCellName(1, rowNum)
+		end, _ := excelize.CoordinatesToCellName(len(r), rowNum)
+		_ = f.SetCellStyle(name, start, end, dataStyle)
+	}
+
+	if len(sh.ColWidths) > 0 {
+		for c, w := range sh.ColWidths {
+			if w <= 0 {
+				continue
+			}
+			colLetter, _ := excelize.ColumnNumberToName(c + 1)
+			_ = f.SetColWidth(name, colLetter, colLetter, w)
+		}
+	}
+
+	if sh.FreezeHeader {
+		_ = f.SetPanes(name, &excelize.Panes{
+			Freeze:      true,
+			Split:       false,
+			XSplit:      0,
+			YSplit:      headerRow,
+			TopLeftCell: fmt.Sprintf("A%d", headerRow+1),
+			ActivePane:  "bottomLeft",
+		})
+	}
+
+	if sh.AutoFilter && len(sh.Headers) > 0 {
+		lastRow := headerRow + len(sh.Rows)
+		lastLetter, _ := excelize.ColumnNumberToName(len(sh.Headers))
+		_ = f.AutoFilter(name, fmt.Sprintf("A%d:%s%d", headerRow, lastLetter, lastRow), []excelize.AutoFilterOptions{})
 	}
 }
 
@@ -496,10 +836,26 @@ func parseXlsx(data []byte) ([]any, error) {
 
 // ================= PDF =================
 
+// pdfFontStyle — строка стиля шрифта fpdf по начертанию абзаца.
+func pdfFontStyle(p Paragraph) string {
+	switch {
+	case p.Bold && p.Italic:
+		return "BI"
+	case p.Bold:
+		return "B"
+	case p.Italic:
+		return "I"
+	default:
+		return ""
+	}
+}
+
 func renderPdf(spec DocSpec) ([]byte, error) {
 	pdfDoc := fpdf.New("P", "mm", "A4", "")
 	pdfDoc.AddUTF8FontFromBytes("DejaVu", "", dejaVuFont)
 	pdfDoc.AddUTF8FontFromBytes("DejaVu", "B", dejaVuFontBold)
+	pdfDoc.AddUTF8FontFromBytes("DejaVu", "I", dejaVuFont)
+	pdfDoc.AddUTF8FontFromBytes("DejaVu", "BI", dejaVuFontBold)
 	pdfDoc.SetMargins(15, 15, 15)
 	pdfDoc.AddPage()
 	if spec.Title != "" {
@@ -509,29 +865,78 @@ func renderPdf(spec DocSpec) ([]byte, error) {
 	}
 	for _, s := range spec.Sections {
 		if s.Heading != "" {
-			pdfDoc.SetFont("DejaVu", "B", 14)
+			level := s.Level
+			if level < 1 || level > 6 {
+				level = 1
+			}
+			size := 16 - (level-1)*2
+			if size < 11 {
+				size = 11
+			}
+			pdfDoc.SetFont("DejaVu", "B", float64(size))
 			pdfDoc.Cell(0, 8, s.Heading)
-			pdfDoc.Ln(10)
+			pdfDoc.Ln(float64(size/2 + 4))
 		}
-		pdfDoc.SetFont("DejaVu", "", 11)
 		for _, p := range s.Paragraphs {
-			pdfDoc.MultiCell(0, 6, p, "", "", false)
-			pdfDoc.Ln(3)
+			// список → префикс-маркер/номер
+			text := p.Text
+			if p.List == "bullet" {
+				text = "•  " + text
+			} else if p.List == "number" {
+				text = "1.  " + text
+			}
+			size := 11.0
+			if p.Size != nil && *p.Size >= 6 && *p.Size <= 96 {
+				size = float64(*p.Size)
+			}
+			pdfDoc.SetFont("DejaVu", pdfFontStyle(p), size)
+			align := "L"
+			switch strings.ToLower(strings.TrimSpace(p.Align)) {
+			case "center":
+				align = "C"
+			case "right":
+				align = "R"
+			case "justify", "both":
+				align = "J"
+			}
+			pdfDoc.MultiCell(0, size/2+1, text, "", align, false)
+			pdfDoc.Ln(2)
 		}
 		if s.Table != nil && len(s.Table.Headers) > 0 {
+			style := strings.ToLower(strings.TrimSpace(s.Table.Style))
+			if style == "" {
+				style = "grid"
+			}
 			width := 170.0 / float64(len(s.Table.Headers))
+			// шапка
+			if style == "fancy" {
+				pdfDoc.SetFillColor(217, 226, 243)
+			} else {
+				pdfDoc.SetFillColor(242, 242, 242)
+			}
 			pdfDoc.SetFont("DejaVu", "B", 9)
+			pdfDoc.SetTextColor(31, 56, 100)
 			for _, h := range s.Table.Headers {
-				pdfDoc.CellFormat(width, 7, h, "1", 0, "L", false, 0, "")
+				border := "1"
+				fill := false
+				if style == "plain" {
+					border = ""
+				} else {
+					fill = true
+				}
+				pdfDoc.CellFormat(width, 7, h, border, 0, "C", fill, 0, "")
 			}
 			pdfDoc.Ln(7)
+			// данные
 			pdfDoc.SetFont("DejaVu", "", 9)
+			pdfDoc.SetTextColor(0, 0, 0)
 			for _, row := range s.Table.Rows {
 				for _, cell := range row {
 					pdfDoc.CellFormat(width, 6, cell, "1", 0, "L", false, 0, "")
 				}
 				pdfDoc.Ln(6)
 			}
+			pdfDoc.Ln(4)
 		}
 	}
 	var buf bytes.Buffer

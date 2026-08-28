@@ -103,7 +103,7 @@ func (s *Server) renderHtml(ctx context.Context, spec DocSpec) ([]byte, error) {
 			sb.WriteString(`<h2>` + escapeHTML(sct.Heading) + `</h2>`)
 		}
 		for _, p := range sct.Paragraphs {
-			sb.WriteString(`<p>` + escapeHTML(p) + `</p>`)
+			sb.WriteString(`<p>` + escapeHTML(p.Text) + `</p>`)
 		}
 		if sct.Table != nil && len(sct.Table.Headers) > 0 {
 			sb.WriteString(`<table><thead><tr>`)

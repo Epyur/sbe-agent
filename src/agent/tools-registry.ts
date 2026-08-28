@@ -39,20 +39,58 @@ export interface AgentTool {
   ) => Promise<ToolCallResult>;
 }
 
+const paragraphSchema = {
+  type: ['string', 'object'] as const,
+  description: 'Абзац: строка (простой текст) ИЛИ объект с оформлением {text, align, bold, italic, underline, size, highlight, list}',
+  properties: {
+    text: { type: 'string', description: 'Текст абзаца' },
+    align: { type: 'string', enum: ['left', 'center', 'right', 'justify'], description: 'Выравнивание' },
+    bold: { type: 'boolean', description: 'Жирный' },
+    italic: { type: 'boolean', description: 'Курсив' },
+    underline: { type: 'boolean', description: 'Подчёркнутый' },
+    size: { type: 'number', description: 'Размер шрифта, pt (6–96)' },
+    highlight: { type: 'string', description: 'Выделение фона: yellow/green/red/blue/cyan/magenta/… или hex-цвет #RRGGBB' },
+    list: { type: 'string', enum: ['bullet', 'number'], description: 'Маркированный (bullet) или нумерованный (number) список' },
+  },
+};
+
+const tableSchema = {
+  type: 'object' as const,
+  properties: {
+    headers: { type: 'array', items: { type: 'string' } },
+    rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+    style: { type: 'string', enum: ['plain', 'grid', 'fancy'], description: 'plain — без границ; grid — границы (по умолчанию); fancy — границы + заливка шапки' },
+    col_widths: { type: 'array', items: { type: 'number' }, description: 'Ширины колонок, см (Word/PDF)' },
+    repeat_header: { type: 'boolean', description: 'Повторять шапку таблицы на каждой странице (Word)' },
+  },
+};
+
 const sectionsSchema = {
   type: 'array' as const,
   items: {
     type: 'object' as const,
     properties: {
-      heading: { type: 'string' },
-      paragraphs: { type: 'array', items: { type: 'string' } },
-      table: {
-        type: 'object',
-        properties: {
-          headers: { type: 'array', items: { type: 'string' } },
-          rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
-        },
-      },
+      heading: { type: 'string', description: 'Заголовок раздела' },
+      level: { type: 'number', description: 'Уровень заголовка 1–6 (1 — самый крупный); используй уровни для структуры документа' },
+      paragraphs: { type: 'array', items: paragraphSchema },
+      table: tableSchema,
+    },
+  },
+};
+
+const sheetsSchema = {
+  type: 'array' as const,
+  items: {
+    type: 'object' as const,
+    properties: {
+      name: { type: 'string', description: 'Название листа' },
+      title: { type: 'string', description: 'Титульный ряд (объединяется по ширине листа, крупный шрифт)' },
+      headers: { type: 'array', items: { type: 'string' } },
+      rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+      auto_filter: { type: 'boolean', description: 'Включить фильтр по колонкам (для строк — очень полезно)' },
+      freeze_header: { type: 'boolean', description: 'Закрепить шапку при прокрутке' },
+      col_widths: { type: 'array', items: { type: 'number' }, description: 'Ширины колонок' },
+      wrap: { type: 'boolean', description: 'Перенос текста в ячейках' },
     },
   },
 };
@@ -62,7 +100,7 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'create_docx',
-        description: 'Сформировать документ Word (.docx): заголовок, разделы (абзацы и таблицы). Файл создаётся на сервере, возвращается ссылка на скачивание (действует ~2 дня).',
+        description: 'Сформировать документ Word (.docx): заголовок, разделы (абзацы и таблицы). По умолчанию документ оформляется по стандарту организации (Times New Roman 14pt, полуторный интервал, поля 30/10/20/20 мм, выравнивание по ширине, отступ первой строки 1,25 см, заголовки по центру, таблицы 10pt) — в spec это задавать НЕ нужно. Указывай только отличия: уровни заголовков (level 1–6), нестандартное выравнивание (align), жирный/курсив/подчёркнутый (bold/italic/underline), размер (size), выделение цветом (highlight), списки (list: bullet/number), стиль таблиц (style: grid/fancy), ширины колонок (col_widths), повтор шапки (repeat_header). Если пользователь дал свои требования к оформлению — следуй им. Файл создаётся на сервере, возвращается ссылка на скачивание (~2 дня).',
         input_schema: {
           type: 'object',
           properties: {
@@ -82,21 +120,11 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'create_xlsx',
-        description: 'Сформировать таблицу Excel (.xlsx): листы с заголовками и строками. Возвращается ссылка на скачивание (~2 дня).',
+        description: 'Сформировать таблицу Excel (.xlsx): листы с заголовками и строками. Поддерживается оформление: титульный ряд, автофильтр по колонкам (auto_filter), закрепление шапки (freeze_header), ширины колонок (col_widths), перенос текста (wrap), стили шапки/границы — применяются автоматически. Возвращается ссылка на скачивание (~2 дня).',
         input_schema: {
           type: 'object',
           properties: {
-            sheets: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  headers: { type: 'array', items: { type: 'string' } },
-                  rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
-                },
-              },
-            },
+            sheets: sheetsSchema,
           },
           required: ['sheets'],
         },
@@ -111,7 +139,7 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'create_pdf',
-        description: 'Сформировать электронный PDF: заголовок и разделы (абзацы, таблицы). Возвращается ссылка на скачивание (~2 дня).',
+        description: 'Сформировать электронный PDF: заголовок и разделы (абзацы, таблицы). Поддерживается оформление: уровни заголовков, выравнивание абзацев, жирный/курсив, размер шрифта, списки, стили таблиц. Возвращается ссылка на скачивание (~2 дня).',
         input_schema: {
           type: 'object',
           properties: {
@@ -454,7 +482,7 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'build_xlsx_from_vault',
-        description: 'Собрать Excel-файл из накопленных записей (JSONL-файл из save_records_to_vault). Читает файл вольта целиком, формирует таблицу и возвращает ссылку на скачивание. Вызывай ПОСЛЕ того, как постранично собраны все записи (до recordsFiltered).',
+        description: 'Собрать Excel-файл из накопленных записей (JSONL-файл из save_records_to_vault). Читает файл вольта целиком, формирует таблицу и возвращает ссылку на скачивание. Вызывай ПОСЛЕ того, как постранично собраны все записи (до recordsFiltered). Для больших списков включай auto_filter (фильтр по колонкам) и freeze_header.',
         input_schema: {
           type: 'object',
           properties: {
@@ -462,6 +490,9 @@ export function createTools(): AgentTool[] {
             file_name: { type: 'string', description: 'Имя скачиваемого файла без .xlsx (по умолчанию records)' },
             sheet_name: { type: 'string', description: 'Название листа (по умолчанию «Данные»)' },
             headers: { type: 'array', items: { type: 'string' }, description: 'Заголовки колонок, если записи — массивы (для объектов колонки берутся из ключей)' },
+            auto_filter: { type: 'boolean', description: 'Включить фильтр по колонкам' },
+            freeze_header: { type: 'boolean', description: 'Закрепить шапку при прокрутке' },
+            wrap: { type: 'boolean', description: 'Перенос текста в ячейках' },
           },
           required: ['path'],
         },

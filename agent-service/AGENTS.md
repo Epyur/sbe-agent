@@ -3,7 +3,8 @@
 Go-сервис генерации и разбора файлов для SBE-плагина «LogicTEAM.007» (sbe-agent).
 Контейнер `agent`, БД `agent` (postgres `agent-db`), авторизация — JWT HS256 (общий
 `JWT_SECRET` с auth-service) + роли из `agent_permissions`. Файлы — в S3 (бакет `sbe-agent`)
-через rclone CLI, ссылка на скачивание — `rclone link --expire 48h`. Деплой: `/opt/mailers/agent-service/`.
+через rclone CLI, ссылка на скачивание — `rclone link --expire 48h`. Деплой на VDS: копия этой
+папки в рабочую папку Docker-стека (путь — вне git, см. рабочую документацию).
 
 ## Назначение (текущее)
 
@@ -68,6 +69,30 @@ go test ./...   # рендеры/парсеры (files_test.go)
 
 ## История
 
+- **2026-08-28 — оформление документов (docx/xlsx/pdf).** Расширена модель `DocSpec`
+  (аддитивно, обратная совместимость):
+  - `Paragraph` — принимает и строку, и объект `{text, align, bold, italic, underline,
+    size, highlight, list: bullet|number}` (кастомный `UnmarshalJSON`);
+  - `Section.Level` 1–6; `Table.Style` plain/grid/fancy + `ColWidths` + `RepeatHeader`;
+  - `Sheet.Title`/`AutoFilter`/`FreezeHeader`/`ColWidths`/`Wrap`.
+  - **docx**: заголовки Heading1–6, выравнивание (`w:jc`), начертание/размер/выделение
+    (`w:rPr`, `w:highlight`, `w:sz`), списки (`word/numbering.xml`, `numPr`, `document.xml.rels`),
+    таблицы (границы, заливка шапки, `tblGrid`, `tblHeader`).
+  - **docx: стандартное оформление по умолчанию** (`styles.xml` + `w:pgMar`): Times New Roman
+    14pt (docDefaults), полуторный интервал, отступ первой строки 1,25 см, выравнивание по
+    ширине (стиль Normal), заголовки по центру (Heading1–6, 16→11pt), поля 30/10/20/20 мм,
+    таблицы 10pt. Применяется, если пользователь не задал своё; явные поля абзаца
+    переопределяют. `[Content_Types].xml`/`document.xml.rels` дополнены styles.
+    Тест `TestRenderDocxGostDefaults` + проверка well-formed XML всех частей пакета.
+  - **xlsx** (excelize): титульный ряд (MergeCell), стили шапки/данных (NewStyle), ширины
+    колонок (SetColWidth), закрепление шапки (SetPanes), **автофильтр (AutoFilter)**.
+  - **pdf** (fpdf): выравнивание абзацев, жирный/курсив (итальянский вариант — тем же
+    шрифтом, отдельного DejaVu Italic в `fonts/` нет), размер, маркеры/номера списков,
+    заголовки по уровням, заливка шапки таблицы.
+  - `mermaid.go` `renderHtml`: адаптация под `Paragraph` (используется `p.Text`).
+  - Тесты: `TestParagraphUnmarshal`, `TestRenderDocxFormatting` (Heading3/jc/b/highlight/
+    sz/numPr/shd/tblHeader/gridCol), `TestRenderXlsxFormatting` (autoFilter/frozen/merge/
+    width/стили). `go test`/`go vet`/`go build` — чисто.
 - **2026-08-20 — ограничение конкурентности (очередь, без ошибок):**
   `generate`/`parse` ограничены семафором (4 слота, `maxConcurrentFileOps`) — вместо
   ошибки «занято» запросы ждут свободный слот (`acquire` в files.go, отменяется при
