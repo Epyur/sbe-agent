@@ -179,7 +179,14 @@ export async function buildXlsxFromVault(ctx: AgentToolContext, args: Record<str
     const title = String(args.file_name || '').trim() || 'records';
     const spec: Record<string, unknown> = {
       title,
-      sheets: [{ name: sheetName, headers, rows }],
+      sheets: [{
+        name: sheetName,
+        headers,
+        rows,
+        auto_filter: !!args.auto_filter,
+        freeze_header: !!args.freeze_header,
+        wrap: !!args.wrap,
+      }],
     };
     return generateFile(ctx, 'xlsx', spec, 'Excel');
   } catch (e: unknown) {

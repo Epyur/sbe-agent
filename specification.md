@@ -22,8 +22,8 @@
 
 | Тул | Аргументы | Результат |
 |---|---|---|
-| `create_docx` | `{title, sections:[{heading, paragraphs[], table?}]}` | ссылка на .docx |
-| `create_xlsx` | `{sheets:[{name, headers[], rows[]}]}` | ссылка на .xlsx |
+| `create_docx` | `{title, sections:[{heading, level?, paragraphs[]?, table?}]}` | ссылка на .docx |
+| `create_xlsx` | `{sheets:[{name, title?, headers[], rows[], auto_filter?, freeze_header?, col_widths?, wrap?}]}` | ссылка на .xlsx |
 | `create_pdf` | `{title, sections[]}` | ссылка на .pdf |
 | `create_json` | `{data}` | ссылка на .json |
 | `create_mermaid` | `{title, code}` | PNG + SVG + .mmd (extra) |
@@ -37,6 +37,21 @@
 | `add_skill` | `{repo_url, skill_path?}` | установка скила из GitHub в `yourbase/sbe_agent/skills/` |
 | `list_skills` | — | список скилов (name/description) |
 | `read_skill` | `{name}` | SKILL.md в контекст агента |
+| `build_xlsx_from_vault` | `{path, file_name?, sheet_name?, headers?, auto_filter?, freeze_header?, wrap?}` | ссылка на .xlsx из JSONL |
+
+### Оформление документов (2026-08-28)
+
+- **Абзац** (`paragraphs[]`) — строка ИЛИ объект:
+  `{text, align: left|center|right|justify, bold, italic, underline, size (pt), highlight (цвет или #hex), list: bullet|number}`.
+- **Раздел** (`sections[]`) — `heading` + `level` 1–6 (иерархия заголовков).
+- **Таблица Word/PDF** (`table`) — `style: plain|grid|fancy`, `col_widths` (см), `repeat_header`.
+- **Лист Excel** (`sheets[]`) — `title` (титульный ряд), `auto_filter` (фильтр по колонкам),
+  `freeze_header` (закрепление шапки), `col_widths`, `wrap` (перенос текста). Стили шапки
+  (жирный + заливка) и границы применяются автоматически.
+- **Стандартное оформление Word — по умолчанию** (если пользователь не задал своё):
+  Times New Roman 14pt, полуторный интервал, поля 30/10/20/20 мм, выравнивание по ширине,
+  отступ первой строки 1,25 см, заголовки по центру, таблицы 10pt. Реализовано в
+  `styles.xml` + `w:pgMar`; явные поля абзаца (`align`/`bold`/`size`/…) переопределяют.
 
 ## agent-service
 
