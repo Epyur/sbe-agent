@@ -29,6 +29,7 @@ export const LOCAL_CACHES: Record<string, LocalCacheDef> = {
   contacts: { path: 'yourbase/sbe_contacts/contacts_data.json', listKey: 'contacts', label: 'Контакты (sbe-contacts)' },
   tasks: { path: 'yourbase/sbe_tasks/tasks_cache.json', listKey: 'tasks', label: 'Задачи (sbe-tasks)' },
   yougile: { path: 'yourbase/yougile_cache.json', listKey: 'tasks', label: 'Кэш монолита yougile-tntn (legacy)' },
+  photobank: { path: 'yourbase/sbe_photobank/photos_data.json', listKey: 'photos', label: 'Фотобанк (sbe-photobank)' },
 };
 
 /** Детальное описание полей каждого локального кэша (что хранится в атрибутах). */
@@ -140,6 +141,31 @@ export const CACHE_SCHEMAS: CacheSchema[] = [
       { name: 'projects', desc: 'проекты' },
       { name: 'boards', desc: 'доски' },
       { name: 'columns', desc: 'колонки' },
+    ],
+  },
+  {
+    name: 'photobank',
+    label: 'Фотобанк (sbe_photobank/photos_data.json)',
+    path: 'yourbase/sbe_photobank/photos_data.json',
+    listKey: 'photos',
+    fields: [
+      { name: 'id', desc: 'идентификатор фотографии' },
+      { name: 'folder_id', desc: 'id папки (0 — без папки)' },
+      { name: 'folder_name', desc: 'название/путь папки («Родитель / Подпапка»)' },
+      { name: 'title', desc: 'отображаемое имя в стоке (короткое, ёмкое)' },
+      { name: 'description', desc: 'описание кадра: что на нём, композиция, цвета, атмосфера' },
+      { name: 'tags', desc: 'теги' },
+      { name: 'custom', desc: 'значения своих полей {key: value}' },
+      { name: 'file_key', desc: 'ключ файла в S3 (для ссылки через get_photo_link)' },
+      { name: 'file_name', desc: 'имя исходного файла' },
+      { name: 'mime_type', desc: 'MIME-тип (например image/jpeg)' },
+      { name: 'kind', desc: 'image | video | raw' },
+      { name: 'width/height', desc: 'размеры (для изображений)' },
+      { name: 'thumb_key', desc: 'ключ миниатюры в S3' },
+      { name: 'author_email', desc: 'автор загрузки' },
+      { name: 'location', desc: 'локация' },
+      { name: 'created_at/updated_at', desc: 'даты' },
+      { name: 'sync_status', desc: 'local / synced' },
     ],
   },
 ];
