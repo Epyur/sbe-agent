@@ -17,6 +17,8 @@ export interface SbeAgentSettings {
   model: string;
   /** Максимальное число шагов агента (вызовов тулов за один ответ). */
   maxIterations: number;
+  /** Версия, для которой уже опубликована новость в «Новости» ЦУП. */
+  lastAnnouncedVersion: string;
 }
 
 const DEFAULT_SETTINGS: SbeAgentSettings = {
@@ -24,12 +26,14 @@ const DEFAULT_SETTINGS: SbeAgentSettings = {
   userName: '',
   model: '',
   maxIterations: 15,
+  lastAnnouncedVersion: '',
 };
 
 const SOURCE_DEFS: Array<{ appId: string; name: string }> = [
   { appId: 'mailer', name: 'Письма' },
   { appId: 'documents', name: 'Документы' },
   { appId: 'lab', name: 'ЛИМС' },
+  { appId: 'photo', name: 'Фотобанк' },
 ];
 
 export default class SbeAgentPlugin extends Plugin {
@@ -67,6 +71,9 @@ export default class SbeAgentPlugin extends Plugin {
       version: this.manifest.version,
       name: this.manifest.name,
     });
+
+    // Новость об обновлении — один раз на версию (канал «Новости» ЦУП).
+    void this.announceOnce();
   }
 
   onunload(): void {
@@ -229,6 +236,24 @@ export default class SbeAgentPlugin extends Plugin {
 
   getSources(): SourceAvailability[] {
     return this.sources;
+  }
+
+  /** Публикация новости в канал «Новости» ЦУП — один раз на версию. */
+  private async announceOnce(): Promise<void> {
+    if (this.settings.lastAnnouncedVersion === this.manifest.version) return;
+    try {
+      const apstore = await getService('sbe-apstore');
+      await apstore.announceUpdate({
+        appId: this.manifest.id,
+        appName: this.manifest.name,
+        version: this.manifest.version,
+        summary: 'Добавлен новый источник данных — корпоративный фотобанк: агент может искать фотографии по описанию, тегам или названию папки и давать ссылки на них.',
+      });
+      this.settings.lastAnnouncedVersion = this.manifest.version;
+      await this.saveSettings();
+    } catch (e: unknown) {
+      console.warn('LogicTEAM.007: не удалось опубликовать новость об обновлении:', errorMessage(e));
+    }
   }
 }
 

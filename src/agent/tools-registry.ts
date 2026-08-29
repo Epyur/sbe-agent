@@ -7,6 +7,7 @@ import { readLocalCache } from './tools/local-cache';
 import { saveRule, listRules, readRule } from './tools/rules-tools';
 import { browserOpen, browserExtract, browserLinks, browserScreenshot, browserClick, browserType, browserWait, fetchUrl } from './tools/browser-tools';
 import { saveRecordsToVault, buildXlsxFromVault } from './tools/records-tools';
+import { getPhotos, getPhotoLink } from './tools/photos-tool';
 
 /** Контекст исполнения тулов (предоставляет плагин). */
 export interface AgentToolContext {
@@ -256,11 +257,11 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'read_local_cache',
-        description: 'Прочитать любой ЛОКАЛЬНЫЙ кэш вольта: mailer (письма с текстом), documents (документы), requests (заявки), contacts (контакты), tasks (задачи), yougile (legacy монолита). Возвращает структуру кэша (ключи и количество) и записи основного списка с фильтром по query.',
+        description: 'Прочитать любой ЛОКАЛЬНЫЙ кэш вольта: mailer (письма с текстом), documents (документы), requests (заявки), contacts (контакты), tasks (задачи), yougile (legacy монолита), photobank (фотобанк: карточки фото). Возвращает структуру кэша (ключи и количество) и записи основного списка с фильтром по query.',
         input_schema: {
           type: 'object',
           properties: {
-            cache: { type: 'string', enum: ['mailer', 'documents', 'requests', 'contacts', 'tasks', 'yougile'] },
+            cache: { type: 'string', enum: ['mailer', 'documents', 'requests', 'contacts', 'tasks', 'yougile', 'photobank'] },
             query: { type: 'string', description: 'Поиск по строкам записей' },
             limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
           },
@@ -268,6 +269,35 @@ export function createTools(): AgentTool[] {
         },
       },
       execute: (ctx, args) => readLocalCache(ctx, args),
+    },
+    {
+      schema: {
+        name: 'get_photos',
+        description: 'Поиск фотографий в корпоративном фотобанке (доступен, если у пользователя есть права на плагин «LogicTEAM.Фотобанк»). Читает локальный кэш фотобанка, при его отсутствии — данные с сервера. Ищи по запросу пользователя («найди фото …»): описание кадра, теги, названия папок. Возвращает карточки: title, description, tags, folder_name, file_key и др.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Поиск по описанию/тегам/названию папки/имени файла' },
+            kind: { type: 'string', enum: ['image', 'video', 'raw'], description: 'Тип файла (по умолчанию все)' },
+            limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
+          },
+        },
+      },
+      execute: (ctx, args) => getPhotos(ctx, args),
+    },
+    {
+      schema: {
+        name: 'get_photo_link',
+        description: 'Получить временную ссылку на файл фотобанка (presigned, действует ~7 дней). Вызывай, когда пользователю нужно открыть/скачать конкретное фото из результатов get_photos (передай file_key из карточки).',
+        input_schema: {
+          type: 'object',
+          properties: {
+            file_key: { type: 'string', description: 'Ключ файла из карточки фото (get_photos → file_key)' },
+          },
+          required: ['file_key'],
+        },
+      },
+      execute: (ctx, args) => getPhotoLink(ctx, args),
     },
     {
       schema: {
