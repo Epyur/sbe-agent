@@ -7,7 +7,7 @@ import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 /** Общий pull из plugin-service + фильтр по строке + limit (fallback, если нет локального кэша). */
 async function pullItems(
   ctx: AgentToolContext,
-  appId: 'mailer' | 'documents' | 'lab',
+  appId: 'mailer' | 'documents' | 'lab' | 'contacts',
   listKey: string,
 ): Promise<Record<string, unknown>[]> {
   const token = await ctx.getToken(appId);
@@ -41,6 +41,31 @@ function truncate(v: string, max: number): string {
   return v.slice(0, max) + '\n…';
 }
 
+/** Локальный кэш (для быстрого поиска) → БД (если локально ничего не нашлось или
+ * кэша нет вовсе). Только для категорий, у которых ЕСТЬ локальный кэш и он может
+ * реально пригодиться (документы/письма/контакты) — фотобанк и ЛИМС всегда идут
+ * напрямую в БД, см. getPhotos/getLimsRequests. */
+async function withServerFallback(
+  ctx: AgentToolContext,
+  cacheName: string,
+  appId: 'mailer' | 'documents' | 'contacts',
+  listKey: string,
+  filter: (items: Record<string, unknown>[]) => Record<string, unknown>[],
+): Promise<{ source: string; items: Record<string, unknown>[] }> {
+  const local = await readLocalList(ctx, cacheName);
+  if (local) {
+    const filtered = filter(local.items);
+    if (filtered.length > 0) {
+      return { source: `local (${local.path})`, items: filtered };
+    }
+  }
+  const serverItems = await pullItems(ctx, appId, listKey);
+  return {
+    source: local ? 'server (в локальном кэше ничего не нашлось)' : 'server',
+    items: filter(serverItems),
+  };
+}
+
 export async function getEmails(
   ctx: AgentToolContext,
   args: Record<string, unknown>,
@@ -50,20 +75,13 @@ export async function getEmails(
     const limit = Number(args.limit) || 20;
     const direction = String(args.direction || '').trim();
 
-    let source = 'server';
-    let items: Record<string, unknown>[] | null = null;
-    const local = await readLocalList(ctx, 'mailer');
-    if (local) {
-      source = 'local';
-      items = local.items;
-    } else {
-      items = await pullItems(ctx, 'mailer', 'emails');
-    }
+    const applyFilters = (list: Record<string, unknown>[]): Record<string, unknown>[] => {
+      let out = list;
+      if (direction) out = out.filter(i => str(i.direction_name).toLowerCase().includes(direction.toLowerCase()));
+      return out.filter(i => matchesQuery(i, query));
+    };
 
-    if (direction) {
-      items = items.filter(i => str(i.direction_name).toLowerCase().includes(direction.toLowerCase()));
-    }
-    items = items.filter(i => matchesQuery(i, query));
+    const { source, items } = await withServerFallback(ctx, 'mailer', 'mailer', 'emails', applyFilters);
 
     const picked = limitItems(items, limit).map(i => ({
       id: i.id,
@@ -77,7 +95,7 @@ export async function getEmails(
 
     return {
       ok: true,
-      summary: `Письма (источник: ${source}, ${local ? local.path : 'сервер'}): найдено ${items.length}, показано ${picked.length}.`,
+      summary: `Письма (источник: ${source}): найдено ${items.length}, показано ${picked.length}.`,
       data: { source, total: items.length, items: picked },
     };
   } catch (e: unknown) {
@@ -93,17 +111,11 @@ export async function getDocuments(
     const query = String(args.query || '').trim();
     const limit = Number(args.limit) || 20;
 
-    let source = 'server';
-    let items: Record<string, unknown>[] | null = null;
-    const local = await readLocalList(ctx, 'documents');
-    if (local) {
-      source = 'local';
-      items = local.items;
-    } else {
-      items = await pullItems(ctx, 'documents', 'documents');
-    }
+    const { source, items } = await withServerFallback(
+      ctx, 'documents', 'documents', 'documents',
+      list => list.filter(i => matchesQuery(i, query)),
+    );
 
-    items = items.filter(i => matchesQuery(i, query));
     const picked = limitItems(items, limit).map(i => ({
       id: i.id,
       title: i.title,
@@ -127,6 +139,44 @@ export async function getDocuments(
   }
 }
 
+export async function getContacts(
+  ctx: AgentToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  try {
+    const query = String(args.query || '').trim();
+    const limit = Number(args.limit) || 20;
+
+    const { source, items } = await withServerFallback(
+      ctx, 'contacts', 'contacts', 'contacts',
+      list => list.filter(i => matchesQuery(i, query)),
+    );
+
+    const picked = limitItems(items, limit).map(i => ({
+      id: i.id,
+      name: i.name,
+      phone: i.phone,
+      email: i.email,
+      organization: i.organization,
+      position: i.position,
+      org_type: i.org_type,
+      notes: i.notes,
+      curator_email: i.curator_email,
+    }));
+
+    return {
+      ok: true,
+      summary: `Контакты (источник: ${source}): найдено ${items.length}, показано ${picked.length}.`,
+      data: { source, total: items.length, items: picked },
+    };
+  } catch (e: unknown) {
+    return { ok: false, summary: '', error: errorMessage(e) };
+  }
+}
+
+/** ЛИМС — всегда напрямую из БД (lab-service), без локального кэша: у пользователя
+ * может не быть свежих данных локально (заявки правят несколько человек), а
+ * статус — то, ради чего почти всегда и спрашивают. */
 export async function getLimsRequests(
   ctx: AgentToolContext,
   args: Record<string, unknown>,
@@ -135,15 +185,7 @@ export async function getLimsRequests(
     const status = String(args.status || '').trim();
     const limit = Number(args.limit) || 20;
 
-    let source = 'server';
-    let items: Record<string, unknown>[] | null = null;
-    const local = await readLocalList(ctx, 'requests');
-    if (local) {
-      source = 'local';
-      items = local.items;
-    } else {
-      items = await pullItems(ctx, 'lab', 'requests');
-    }
+    let items = await pullItems(ctx, 'lab', 'requests');
 
     if (status) {
       items = items.filter(i => str(i.status).toLowerCase() === status.toLowerCase());
@@ -158,8 +200,8 @@ export async function getLimsRequests(
 
     return {
       ok: true,
-      summary: `Заявки ЛИМС (источник: ${source}): найдено ${items.length}, показано ${picked.length}.`,
-      data: { source, total: items.length, items: picked },
+      summary: `Заявки ЛИМС (источник: server): найдено ${items.length}, показано ${picked.length}.`,
+      data: { source: 'server', total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };

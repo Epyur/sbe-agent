@@ -1,6 +1,6 @@
 import type { AgentToolSchema, ToolCallResult, SourceAvailability } from '../types/agent';
 import { generateFile, parseFile, readTextPart } from './tools/file-tools';
-import { getEmails, getDocuments, getLimsRequests } from './tools/database-tools';
+import { getEmails, getDocuments, getContacts, getLimsRequests } from './tools/database-tools';
 import { getTasks } from './tools/tasks-tool';
 import { addSkill, listSkills, readSkill } from './tools/skills-tools';
 import { readLocalCache } from './tools/local-cache';
@@ -198,7 +198,7 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'get_emails',
-        description: 'Поиск писем в базе почты (доступен, если у пользователя есть права на плагин «Письма»).',
+        description: 'Поиск писем в базе почты (доступен, если у пользователя есть права на плагин «Письма»). Сначала смотрит локальный кэш; если там ничего не нашлось (или кэша нет) — идёт напрямую в БД сервера.',
         input_schema: {
           type: 'object',
           properties: {
@@ -213,7 +213,7 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'get_documents',
-        description: 'Поиск документов в базе документов (доступен, если у пользователя есть права на плагин «Документы»).',
+        description: 'Поиск документов в базе документов (доступен, если у пользователя есть права на плагин «Документы»). Сначала смотрит локальный кэш; если там ничего не нашлось (или кэша нет) — идёт напрямую в БД сервера.',
         input_schema: {
           type: 'object',
           properties: {
@@ -226,8 +226,22 @@ export function createTools(): AgentTool[] {
     },
     {
       schema: {
+        name: 'get_contacts',
+        description: 'Поиск контактов (доступен, если у пользователя есть права на плагин «Контакты»). Сначала смотрит локальный кэш; если там ничего не нашлось (или кэша нет) — идёт напрямую в БД сервера.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Поиск по имени/телефону/email/организации' },
+            limit: { type: 'number', description: 'Сколько показать (по умолчанию 20, максимум 200)' },
+          },
+        },
+      },
+      execute: (ctx, args) => getContacts(ctx, args),
+    },
+    {
+      schema: {
         name: 'get_lims_requests',
-        description: 'Заявки на испытания из ЛИМС (доступен, если у пользователя есть права на плагин «Заявки на испытания»/«ЛИМС»).',
+        description: 'Заявки на испытания из ЛИМС (доступен, если у пользователя есть права на плагин «Заявки на испытания»/«ЛИМС»). Всегда напрямую из БД сервера — локальный кэш не используется (статусы/данные заявок меняются другими людьми, локальный кэш может быть устаревшим).',
         input_schema: {
           type: 'object',
           properties: {
@@ -273,7 +287,7 @@ export function createTools(): AgentTool[] {
     {
       schema: {
         name: 'get_photos',
-        description: 'Поиск фотографий в корпоративном фотобанке (доступен, если у пользователя есть права на плагин «LogicTEAM.Фотобанк»). Читает локальный кэш фотобанка, при его отсутствии — данные с сервера. Ищи по запросу пользователя («найди фото …»): описание кадра, теги, названия папок. Возвращает карточки: title, description, tags, folder_name, file_key и др.',
+        description: 'Поиск фотографий в корпоративном фотобанке (доступен, если у пользователя есть права на плагин «LogicTEAM.Фотобанк»). Всегда напрямую из БД сервера — локальный кэш не используется (у разных пользователей разная видимость папок/файлов). Ищи по запросу пользователя («найди фото …»): описание кадра, теги, названия папок. Возвращает карточки: title, description, tags, folder_name, file_key и др.',
         input_schema: {
           type: 'object',
           properties: {

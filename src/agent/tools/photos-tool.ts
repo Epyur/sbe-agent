@@ -1,14 +1,16 @@
 import type { AgentToolContext } from '../tools-registry';
 import type { ToolCallResult } from '../../types/agent';
 import { request, assertOk } from '../http';
-import { readLocalList } from './local-cache';
 import { errorMessage } from '../../../../sbe-core/src/utils/errors';
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
-/** Поиск фотографий в фотобанке: локальный кэш метаданных, при отсутствии — pull с сервера. */
+/** Поиск фотографий в фотобанке — всегда напрямую из БД (photo-service), без
+ * локального кэша: у разных пользователей разная видимость папок/файлов, а
+ * локальный кэш метаданных синхронизируется только внутри Obsidian-плагина
+ * «Фотобанк» на этом устройстве и может не совпадать с тем, что реально в БД. */
 export async function getPhotos(
   ctx: AgentToolContext,
   args: Record<string, unknown>,
@@ -18,23 +20,15 @@ export async function getPhotos(
     const kind = String(args.kind || '').trim();
     const limit = Number(args.limit) || 20;
 
-    let source = 'server';
-    let items: Record<string, unknown>[] | null = null;
-    const local = await readLocalList(ctx, 'photobank');
-    if (local) {
-      source = 'local';
-      items = local.items;
-    } else {
-      const token = await ctx.getToken('photo');
-      const res = await request({
-        url: `${ctx.getApiUrl()}/api/photo/sync/pull`,
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
-      }, 120000);
-      assertOk(res, 'фотобанк');
-      const parsed = JSON.parse(res.text) as Record<string, unknown>;
-      items = Array.isArray(parsed.photos) ? parsed.photos : [];
-    }
+    const token = await ctx.getToken('photo');
+    const res = await request({
+      url: `${ctx.getApiUrl()}/api/photo/sync/pull`,
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    }, 120000);
+    assertOk(res, 'фотобанк');
+    const parsed = JSON.parse(res.text) as Record<string, unknown>;
+    let items: Record<string, unknown>[] = Array.isArray(parsed.photos) ? parsed.photos : [];
 
     if (kind) {
       items = items.filter(i => str(i.kind).toLowerCase() === kind.toLowerCase());
@@ -67,8 +61,8 @@ export async function getPhotos(
 
     return {
       ok: true,
-      summary: `Фотобанк (источник: ${source}): найдено ${items.length}, показано ${picked.length}.`,
-      data: { source, total: items.length, items: picked },
+      summary: `Фотобанк (источник: server): найдено ${items.length}, показано ${picked.length}.`,
+      data: { source: 'server', total: items.length, items: picked },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
