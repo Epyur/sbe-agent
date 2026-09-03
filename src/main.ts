@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS: SbeAgentSettings = {
 const SOURCE_DEFS: Array<{ appId: string; name: string }> = [
   { appId: 'mailer', name: 'Письма' },
   { appId: 'documents', name: 'Документы' },
+  { appId: 'contacts', name: 'Контакты' },
   { appId: 'lab', name: 'ЛИМС' },
   { appId: 'photo', name: 'Фотобанк' },
 ];
@@ -247,7 +248,7 @@ export default class SbeAgentPlugin extends Plugin {
         appId: this.manifest.id,
         appName: this.manifest.name,
         version: this.manifest.version,
-        summary: 'Добавлен новый источник данных — корпоративный фотобанк: агент может искать фотографии по описанию, тегам или названию папки и давать ссылки на них.',
+        summary: 'Исправлен поиск заявок ЛИМС и фотографий — теперь агент всегда смотрит актуальные данные на сервере, а не устаревший локальный кэш. Также добавлен поиск по контактам.',
       });
       this.settings.lastAnnouncedVersion = this.manifest.version;
       await this.saveSettings();

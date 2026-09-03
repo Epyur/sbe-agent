@@ -30,10 +30,14 @@
 | `create_png` | `{chart:{type: bar\|line\|pie, title, data:[{label,value}]}}` или `{mermaid}` | ссылка на PNG |
 | `create_html` | `{title, sections[], images:[{url, caption}], svgs[], mermaid_blocks[]}` | ссылка на HTML |
 | `parse_file` | прикреплённый файл | `{kind, text\|sheets\|data}` |
-| `get_emails` | `{query, direction, limit}` | письма (mailer pull) |
-| `get_documents` | `{query, limit}` | документы (documents pull) |
-| `get_lims_requests` | `{status, limit}` | заявки ЛИМС (lab pull) |
+| `get_emails` | `{query, direction, limit}` | письма (локальный кэш, фолбэк — mailer pull если пусто) |
+| `get_documents` | `{query, limit}` | документы (локальный кэш, фолбэк — documents pull если пусто) |
+| `get_contacts` | `{query, limit}` | контакты (локальный кэш, фолбэк — contacts pull если пусто) |
+| `get_lims_requests` | `{status, limit}` | заявки ЛИМС — ВСЕГДА напрямую (lab pull, без кэша) |
+| `get_photos` | `{query, kind, limit}` | фотобанк — ВСЕГДА напрямую (photo pull, без кэша) |
+| `get_photo_link` | `{file_key}` | presigned-ссылка на файл фотобанка (~7 дней) |
 | `get_tasks` | `{query, project, completed, limit}` | задачи + агрегаты (локальный кэш) |
+| `read_local_cache` | `{cache, query, limit}` | сырое чтение любого локального кэша, без похода в БД (диагностика) |
 | `add_skill` | `{repo_url, skill_path?}` | установка скила из GitHub в `yourbase/sbe_agent/skills/` |
 | `list_skills` | — | список скилов (name/description) |
 | `read_skill` | `{name}` | SKILL.md в контекст агента |
