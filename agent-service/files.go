@@ -41,6 +41,19 @@ type ChartSpec struct {
 		Label string  `json:"label"`
 		Value float64 `json:"value"`
 	} `json:"data"`
+	// Categories/Series — несколько именованных рядов на общих категориях
+	// (например «поступление»/«завершение» по одним и тем же датам). Заданы —
+	// имеют приоритет над Data/Type (одиночный ряд). Программная генерация
+	// mermaid-кода (chartToMermaid) вместо ручного — модель не может
+	// сгенерировать невалидный синтаксис xychart-beta для этого случая.
+	Categories []string      `json:"categories"`
+	Series     []ChartSeries `json:"series"`
+}
+
+type ChartSeries struct {
+	Name   string    `json:"name"`
+	Type   string    `json:"type"` // bar | line, по умолчанию — ChartSpec.Type, иначе bar
+	Values []float64 `json:"values"`
 }
 
 type HtmlImage struct {

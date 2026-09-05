@@ -52,6 +52,42 @@ func renderMermaid(ctx context.Context, code, format string) ([]byte, error) {
 
 func chartToMermaid(c *ChartSpec) string {
 	var sb strings.Builder
+	if len(c.Series) > 0 {
+		// Несколько именованных рядов на общих категориях (например
+		// «поступление»/«завершение» по датам) — mermaid xychart-beta НЕ
+		// поддерживает оператор legend (в отличие от других диаграмм mermaid);
+		// имя ряда записываем комментарием %% в исходнике для человека,
+		// визуально ряды различаются цветом самого mermaid.
+		sb.WriteString("xychart-beta\n")
+		if c.Title != "" {
+			sb.WriteString("  title \"" + c.Title + "\"\n")
+		}
+		labels := make([]string, 0, len(c.Categories))
+		for _, l := range c.Categories {
+			labels = append(labels, "\""+l+"\"")
+		}
+		sb.WriteString("  x-axis [" + strings.Join(labels, ", ") + "]\n")
+		sb.WriteString("  y-axis \"value\"\n")
+		for _, s := range c.Series {
+			t := s.Type
+			if t == "" {
+				t = c.Type
+			}
+			if t != "line" {
+				t = "bar"
+			}
+			values := make([]string, 0, len(s.Values))
+			for _, v := range s.Values {
+				values = append(values, fmt.Sprintf("%g", v))
+			}
+			sb.WriteString("  " + t + " [" + strings.Join(values, ", ") + "]")
+			if s.Name != "" {
+				sb.WriteString(" %% " + s.Name)
+			}
+			sb.WriteString("\n")
+		}
+		return sb.String()
+	}
 	switch c.Type {
 	case "pie":
 		sb.WriteString("pie showData\n")
