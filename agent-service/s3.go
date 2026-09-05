@@ -108,6 +108,33 @@ func (s *S3Store) Link(ctx context.Context, key, expire string) (string, error) 
 	return strings.TrimSpace(string(out)), nil
 }
 
+// Get скачивает объект из S3 (rclone copyto из бакета во временный файл).
+// Нужен для скретч-хранилища (scratch.go) — в отличие от Put/Link, которые
+// используются только для генерируемых-на-скачивание файлов, тут файл нужно
+// прочитать обратно на сервере.
+func (s *S3Store) Get(ctx context.Context, key string) ([]byte, error) {
+	tmp, err := os.CreateTemp("", "rclone-download-*")
+	if err != nil {
+		return nil, err
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+
+	start := time.Now()
+	cmd := s.rcloneArgs("copyto", "--log-level", "ERROR", s.remoteAddr(key), tmp.Name())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("rclone copyto(download) failed: %v (%s) out=%s", err, time.Since(start), strings.TrimSpace(string(out)))
+		return nil, err
+	}
+	data, err := os.ReadFile(tmp.Name())
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("rclone copyto(download) OK: %s (elapsed %s, %d bytes)", key, time.Since(start), len(data))
+	return data, nil
+}
+
 // randomID возвращает hex-строку для уникального ключа.
 func randomID() string {
 	b := make([]byte, 16)

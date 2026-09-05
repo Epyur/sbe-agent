@@ -69,6 +69,41 @@ go test ./...   # рендеры/парсеры (files_test.go)
 
 ## История
 
+- **2026-09-05 — веб-портал (`sbe-web`, модуль `src/modules/agent/`): per-user
+  таблицы + скретч-хранилище S3.** Ядро агента (цикл LLM↔тулы) перенесено в
+  веб-клиент (см. `sbe-web/AGENTS.md`) — этот сервис остаётся «тупым»
+  файловым/скиловым бэкендом, расширенным тремя новыми per-user сущностями,
+  по образцу `skills.go` (`requirePerm("viewer")`, email из `permEmailCtx{}`,
+  никогда из тела запроса):
+  - `chat_history.go` — `chat_history(email PK, dialogs JSONB)`,
+    `GET/POST /api/agent/history`, `DELETE /api/agent/history/{id}` — история
+    диалогов веб-чата (в Obsidian это `yourbase/sbe_agent/chat_history.json`
+    вольта; в вебе вольта нет — сервер стал источником истины, доступна с
+    любого браузера/устройства).
+  - `agent_rules.go` — `agent_rules(email, path, content)`,
+    `GET/POST/DELETE /api/agent/rules` (`append` — сервер сам конкатенирует) —
+    аналог `yourbase/sbe_agent/rules/*.md`.
+  - `agent_settings.go` — `agent_settings(email PK, system_prompt)`,
+    `GET/POST/DELETE /api/agent/settings` — аналог редактируемой заметки
+    `agent_context.md`.
+  - `scratch.go` + новый `S3Store.Get()` в `s3.go` — замена путей в вольте
+    (`yourbase/sbe_agent/parsed/*`, `*.jsonl`) для `read_text_part` и
+    постраничного сбора списков (`fetch_url` save_to/`save_records`/
+    `build_xlsx_from_records`): новый префикс `scratch/{хеш email}/...` в том
+    же бакете `sbe-agent`. **Важно**: старый cron
+    (`rclone delete firstvds:sbe-agent/agent --min-age 48h`) чистит только
+    `agent/` — на VDS вручную добавлена вторая строка для `scratch/` (не в
+    этом репозитории, чистая инфраструктура).
+  - Версия плагина НЕ поднимается — изменения чисто бэковые (см. корневой
+    `AGENTS.md`, правило «Бэки в папках плагинов»).
+  - `go build`/`go vet` — чисто. **Задеплоено на VDS** (`docker compose up -d
+    --build agent`, собралось с первого раза), health ok, 3 новые таблицы
+    подтверждены (`\dt` в `agent-db`). Живой E2E пройден пользователем через
+    веб-чат (несколько раундов правок по итогам реального использования —
+    см. `sbe-web/AGENTS.md` за 2026-09-04/05 для полной картины, включая
+    находки на стороне веб-клиента: таймаут LLM-запроса, формат ошибок
+    upstream-провайдера, отсутствие `link` у `get_photo_link`, неверный
+    источник данных ЛИМС).
 - **2026-08-28 — оформление документов (docx/xlsx/pdf).** Расширена модель `DocSpec`
   (аддитивно, обратная совместимость):
   - `Paragraph` — принимает и строку, и объект `{text, align, bold, italic, underline,

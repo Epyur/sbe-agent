@@ -79,6 +79,25 @@ func main() {
 	mux.HandleFunc("DELETE /api/agent/skills/{name}", s.requirePerm("admin")(s.handleDeleteGlobalSkill))
 	// Скрытый серверный режим работы с сайтами (fetch_url): GET/POST/JSON.
 	mux.HandleFunc("POST /api/agent/fetch", s.requirePerm("viewer")(s.handleFetch))
+	// Веб-портал (2026-09-04): история диалогов/правила/системный промпт —
+	// per-user, без вольта Obsidian, см. chat_history.go/agent_rules.go/
+	// agent_settings.go. Все под requirePerm("viewer") — тем же гейтом, что
+	// уже стоит на остальных тулах агента (есть доступ к агенту вообще —
+	// есть доступ и к своим истории/правилам/настройкам).
+	mux.HandleFunc("GET /api/agent/history", s.requirePerm("viewer")(s.handleGetHistory))
+	mux.HandleFunc("POST /api/agent/history", s.requirePerm("viewer")(s.handleSaveDialog))
+	mux.HandleFunc("DELETE /api/agent/history/{id}", s.requirePerm("viewer")(s.handleDeleteDialog))
+	mux.HandleFunc("GET /api/agent/rules", s.requirePerm("viewer")(s.handleListRules))
+	mux.HandleFunc("POST /api/agent/rules", s.requirePerm("viewer")(s.handleSaveRule))
+	mux.HandleFunc("DELETE /api/agent/rules", s.requirePerm("viewer")(s.handleDeleteRule))
+	mux.HandleFunc("GET /api/agent/settings", s.requirePerm("viewer")(s.handleGetAgentSettings))
+	mux.HandleFunc("POST /api/agent/settings", s.requirePerm("viewer")(s.handleSetAgentSettings))
+	mux.HandleFunc("DELETE /api/agent/settings", s.requirePerm("viewer")(s.handleDeleteAgentSettings))
+	// Скретч-хранилище (read_text_part, постраничный сбор списков) — см. scratch.go.
+	mux.HandleFunc("POST /api/agent/scratch/text", s.requirePerm("viewer")(s.handleSaveScratchText))
+	mux.HandleFunc("GET /api/agent/scratch/text", s.requirePerm("viewer")(s.handleReadScratchText))
+	mux.HandleFunc("POST /api/agent/scratch/records", s.requirePerm("viewer")(s.handleSaveScratchRecords))
+	mux.HandleFunc("GET /api/agent/scratch/records", s.requirePerm("viewer")(s.handleReadScratchRecords))
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
@@ -104,7 +123,16 @@ CREATE TABLE IF NOT EXISTS agent_permissions (
 )`); err != nil {
 		return err
 	}
-	return s.migrateSkills(ctx)
+	if err := s.migrateSkills(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateChatHistory(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateAgentRules(ctx); err != nil {
+		return err
+	}
+	return s.migrateAgentSettings(ctx)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
