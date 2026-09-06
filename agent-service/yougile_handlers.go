@@ -21,7 +21,9 @@ func yougileErrorStatus(err error) int {
 	return http.StatusBadGateway
 }
 
-// handleYougileTasks — GET /api/agent/yougile/tasks?projectId=&boardId=&columnId=&assignedTo=.
+// handleYougileTasks — GET /api/agent/yougile/tasks?columnId=&assignedTo=&mine=1.
+// mine=1 разрешает «мои задачи» без похода модели за списком пользователей —
+// сервер сам резолвит id текущего пользователя по email (см. yougile_stats.go).
 func (s *Server) handleYougileTasks(w http.ResponseWriter, r *http.Request) {
 	email, _ := r.Context().Value(permEmailCtx{}).(string)
 	filter := map[string]string{}
@@ -29,6 +31,14 @@ func (s *Server) handleYougileTasks(w http.ResponseWriter, r *http.Request) {
 		if v := r.URL.Query().Get(k); v != "" {
 			filter[k] = v
 		}
+	}
+	if r.URL.Query().Get("mine") == "1" {
+		myID, err := s.yougileResolveMyID(r.Context(), email)
+		if err != nil {
+			writeJSON(w, yougileErrorStatus(err), map[string]any{"error": err.Error()})
+			return
+		}
+		filter["assignedTo"] = myID
 	}
 	tasks, err := s.yougileListTasks(r.Context(), email, filter)
 	if err != nil {

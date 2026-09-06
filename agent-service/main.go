@@ -113,6 +113,12 @@ func main() {
 	mux.HandleFunc("PUT /api/agent/yougile/tasks/{id}/status", s.requirePerm("viewer")(s.handleYougileSetTaskStatus))
 	mux.HandleFunc("POST /api/agent/yougile/tasks/{id}/message", s.requirePerm("viewer")(s.handleYougileTaskMessage))
 	mux.HandleFunc("GET /api/agent/yougile/board-tree", s.requirePerm("viewer")(s.handleYougileBoardTree))
+	// «Мои задачи» без похода за списком пользователей + агрегация по
+	// периодам/исполнителям (2026-09-06, фикс живой жалобы — модель гоняла
+	// 200 сырых карточек в контекст, раздувая транскрипт до 504 на следующем
+	// запросе). См. yougile_stats.go.
+	mux.HandleFunc("GET /api/agent/yougile/my-id", s.requirePerm("viewer")(s.handleYougileMyID))
+	mux.HandleFunc("GET /api/agent/yougile/task-stats", s.requirePerm("viewer")(s.handleYougileTaskStats))
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
