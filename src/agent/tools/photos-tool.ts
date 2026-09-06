@@ -19,6 +19,7 @@ export async function getPhotos(
     const query = String(args.query || '').trim();
     const kind = String(args.kind || '').trim();
     const limit = Number(args.limit) || 20;
+    const id = Number(args.id) || 0;
 
     const token = await ctx.getToken('photo');
     const res = await request({
@@ -30,10 +31,12 @@ export async function getPhotos(
     const parsed = JSON.parse(res.text) as Record<string, unknown>;
     let items: Record<string, unknown>[] = Array.isArray(parsed.photos) ? parsed.photos : [];
 
-    if (kind) {
+    if (id > 0) {
+      items = items.filter(i => Number(i.id) === id);
+    } else if (kind) {
       items = items.filter(i => str(i.kind).toLowerCase() === kind.toLowerCase());
     }
-    if (query) {
+    if (query && id <= 0) {
       const q = query.toLowerCase();
       items = items.filter(i => Object.entries(i).some(([k, v]) => {
         if (k === 'custom') return false;
