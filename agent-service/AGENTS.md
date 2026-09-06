@@ -51,7 +51,11 @@ Go-сервис генерации и разбора файлов для SBE-п�
 
 `DATABASE_URL`, `PORT`, `JWT_SECRET`, `AGENT_APP_ID` (default `agent`), `AGENT_APP_NAME`,
 `AGENT_OWNER_EMAIL`, `AGENT_SERVICE_SECRET`, `AUTH_SERVICE_URL`, `S3_ENDPOINT`,
-`S3_ACCESS_KEY`, `S3_SECRET_KEY`, `AGENT_S3_BUCKET` (default `sbe-agent`).
+`S3_ACCESS_KEY`, `S3_SECRET_KEY`, `AGENT_S3_BUCKET` (default `sbe-agent`),
+`AGENT_KEY_ENCRYPTION_KEY` (2026-09-06, ЮГайл — AES-256 ключ шифрования пароля
+пользователя, 32 байта base64, `openssl rand -base64 32`; сервис не стартует
+без неё), `YOUGILE_COMPANY_ID` (2026-09-06 — id компании в ЮГайле, одно
+значение на всех, то же самое, что уже использует Obsidian-плагин `sbe-yougile`).
 
 ## Сборка / проверка
 
@@ -69,6 +73,42 @@ go test ./...   # рендеры/парсеры (files_test.go)
 
 ## История
 
+- **2026-09-06 — ЮГайл для веб-агента (чтение + ограниченная запись, БЕЗ удаления).**
+  Дизайн: `docs/superpowers/specs/2026-09-06-web-agent-yougile-design.md`. Даёт
+  веб-агенту (`sbe-web`) прямой доступ к API ЮГайла (`ru.yougile.com/api-v2`) —
+  сервер-серверный прокси, без CORS-проблемы браузера, ключ ЮГайла никогда не
+  попадает в код фронтенда. Obsidian-плагин `sbe-agent` НЕ менялся (у него уже
+  есть рабочий `get_tasks` через локальный кэш вольта) — это только веб.
+  - **Хранение пароля** (`yougile_credentials.go`): таблица
+    `yougile_credentials(email PK, password_enc, password_nonce)`, AES-256-GCM
+    (`crypto.go`, порт `sbe-llm/llm-service/crypto.go`, новый ключ
+    `AGENT_KEY_ENCRYPTION_KEY`, отдельный от `LLM_KEY_ENCRYPTION_KEY`). Логин
+    ЮГайла = email пользователя, не хранится отдельно. `companyId` — константа
+    сервера (`YOUGILE_COMPANY_ID`, одна на всю компанию), не per-user.
+    `GET/POST/DELETE /api/agent/yougile/settings` — пароль никогда не
+    возвращается клиенту.
+  - **Обмен пароля на ключ ЮГайла** (`yougile_client.go`): `POST
+    ru.yougile.com/api-v2/auth/keys {login: email, password, companyId}` →
+    ключ кэшируется в памяти процесса (`yougileKeyCache`, per-email), не в БД;
+    повторный обмен — только если ключа нет в кэше или ЮГайл ответил 401
+    (реактивное обновление, тот же паттерн, что уже в
+    `sbe-yougile/src/services/auth.ts`).
+  - **Хендлеры** (`yougile_handlers.go`, все за `requirePerm("viewer")`, как
+    остальные роуты сервиса): `GET /api/agent/yougile/tasks` (список+фильтры),
+    `GET /api/agent/yougile/board-tree` (проекты+доски+колонки+пользователи
+    одним вызовом — для сопоставления имён → id), `POST
+    /api/agent/yougile/tasks` (создание), `PUT
+    /api/agent/yougile/tasks/{id}/status` (смена колонки — в API ЮГайла нет
+    отдельного поля статуса), `POST /api/agent/yougile/tasks/{id}/message`
+    (multipart `text`+необязательный `file` — файл грузится через
+    `/upload-file`, ссылка/картинка встраивается в `textHtml` сообщения, т.к.
+    у сообщения чата ЮГайла нет отдельного поля «вложение», см.
+    `yougile-tntn/src/ui/tasks-view.ts`; `taskId` САМ является `chatId`
+    собственного чата задачи).
+  - **Удаления нет нигде в коде** — ни хендлера, ни метода клиента, ни тула на
+    веб-клиенте (см. `sbe-web/AGENTS.md`) — структурная гарантия, категорическое
+    требование пользователя (задачи/доски/проекты), не текстовый запрет.
+  - `go build`/`go vet` — чисто.
 - **2026-09-05/06 — `ChartSpec`: несколько именованных рядов (`categories`+`series`).**
   Живая жалоба из веб-агента: модель просила `create_mermaid` нарисовать график
   «поступление/завершение заявок по датам» (два ряда на одних датах) вручную

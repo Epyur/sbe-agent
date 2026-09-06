@@ -32,6 +32,9 @@ func main() {
 	if err := loadJWTSecret(); err != nil {
 		log.Fatalf("JWT: %v", err)
 	}
+	if err := loadSecretEncryptionKey(); err != nil {
+		log.Fatalf("crypto: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -98,6 +101,18 @@ func main() {
 	mux.HandleFunc("GET /api/agent/scratch/text", s.requirePerm("viewer")(s.handleReadScratchText))
 	mux.HandleFunc("POST /api/agent/scratch/records", s.requirePerm("viewer")(s.handleSaveScratchRecords))
 	mux.HandleFunc("GET /api/agent/scratch/records", s.requirePerm("viewer")(s.handleReadScratchRecords))
+	// ЮГайл (веб-агент, 2026-09-06) — чтение + ограниченная запись (создание
+	// задачи, сообщение/файл в чат, смена статуса/колонки); удаления НЕТ нигде
+	// в коде — структурная гарантия, см. docs/superpowers/specs/
+	// 2026-09-06-web-agent-yougile-design.md.
+	mux.HandleFunc("GET /api/agent/yougile/settings", s.requirePerm("viewer")(s.handleGetYougileSettings))
+	mux.HandleFunc("POST /api/agent/yougile/settings", s.requirePerm("viewer")(s.handleSetYougileSettings))
+	mux.HandleFunc("DELETE /api/agent/yougile/settings", s.requirePerm("viewer")(s.handleDeleteYougileSettings))
+	mux.HandleFunc("GET /api/agent/yougile/tasks", s.requirePerm("viewer")(s.handleYougileTasks))
+	mux.HandleFunc("POST /api/agent/yougile/tasks", s.requirePerm("viewer")(s.handleYougileCreateTask))
+	mux.HandleFunc("PUT /api/agent/yougile/tasks/{id}/status", s.requirePerm("viewer")(s.handleYougileSetTaskStatus))
+	mux.HandleFunc("POST /api/agent/yougile/tasks/{id}/message", s.requirePerm("viewer")(s.handleYougileTaskMessage))
+	mux.HandleFunc("GET /api/agent/yougile/board-tree", s.requirePerm("viewer")(s.handleYougileBoardTree))
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,
@@ -132,7 +147,10 @@ CREATE TABLE IF NOT EXISTS agent_permissions (
 	if err := s.migrateAgentRules(ctx); err != nil {
 		return err
 	}
-	return s.migrateAgentSettings(ctx)
+	if err := s.migrateAgentSettings(ctx); err != nil {
+		return err
+	}
+	return s.migrateYougileCredentials(ctx)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
