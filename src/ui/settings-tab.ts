@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { App, DataAdapter, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type SbeAgentPlugin from '../main';
 import { request } from '../agent/http';
 import { errorMessage } from '../../../sbe-core/src/utils/errors';
@@ -182,6 +182,31 @@ export class AgentSettingsTab extends PluginSettingTab {
     }
   }
 
+  /** Рекурсивно собирает файлы скила (кроме SKILL.md на верхнем уровне) — скилы
+   *  вроде content-rewrite ссылаются на файлы в подпапках (references/*.md),
+   *  раньше отправлялся только верхний уровень и эти файлы молча не попадали
+   *  на сервер (read_skill их не находил). */
+  private async collectSkillFiles(
+    adapter: DataAdapter, dir: string, baseDir: string,
+    files: GlobalSkillFile[], totalRef: { total: number },
+  ): Promise<string | null> {
+    const listed = await adapter.list(dir);
+    for (const f of listed.files) {
+      const rel = f.slice(baseDir.length + 1);
+      if (rel.toLowerCase() === 'skill.md') continue;
+      if (files.length >= 50) return 'Скил слишком большой (более 50 файлов)';
+      const fileContent = await adapter.read(f);
+      totalRef.total += fileContent.length;
+      if (totalRef.total > 8 * 1024 * 1024) return 'Скил слишком большой (суммарно более 8 МБ)';
+      files.push({ name: rel, content: fileContent });
+    }
+    for (const sub of listed.folders) {
+      const err = await this.collectSkillFiles(adapter, sub, baseDir, files, totalRef);
+      if (err) return err;
+    }
+    return null;
+  }
+
   private async uploadGlobalSkill(folderPath: string): Promise<string> {
     const path = (folderPath || '').trim().replace(/\/+$/, '');
     if (!path) return 'Укажите путь к папке скила';
@@ -193,17 +218,9 @@ export class AgentSettingsTab extends PluginSettingTab {
       if (!(await adapter.exists(skillMd))) return `В папке нет SKILL.md: ${skillMd}`;
       const content = await adapter.read(skillMd);
       const files: GlobalSkillFile[] = [];
-      const listed = await adapter.list(path);
-      let total = content.length;
-      for (const f of listed.files) {
-        const fn = (f.split('/').pop() || '').trim();
-        if (!fn || fn.toLowerCase() === 'skill.md') continue;
-        if (files.length >= 50) break;
-        const fileContent = await adapter.read(f);
-        total += fileContent.length;
-        if (total > 8 * 1024 * 1024) return 'Скил слишком большой (суммарно более 8 МБ)';
-        files.push({ name: fn, content: fileContent });
-      }
+      const totalRef = { total: content.length };
+      const err = await this.collectSkillFiles(adapter, path, path, files, totalRef);
+      if (err) return err;
       const token = await this.plugin.buildToolContext().getToken('agent');
       const res = await request({
         url: `${this.plugin.settings.apiUrl}/api/agent/skills`,
