@@ -119,6 +119,10 @@ func main() {
 	// запросе). См. yougile_stats.go.
 	mux.HandleFunc("GET /api/agent/yougile/my-id", s.requirePerm("viewer")(s.handleYougileMyID))
 	mux.HandleFunc("GET /api/agent/yougile/task-stats", s.requirePerm("viewer")(s.handleYougileTaskStats))
+	// Файлы, отрисованные на клиенте (2026-09-06): графики (ApexCharts) и
+	// презентации (self-contained HTML) — сервер только хранит готовый файл.
+	// См. client_file_store.go.
+	mux.HandleFunc("POST /api/agent/file/store", s.requirePerm("viewer")(s.handleStoreClientFile))
 
 	httpServer := &http.Server{
 		Addr:              ":" + port,

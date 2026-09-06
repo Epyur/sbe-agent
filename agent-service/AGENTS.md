@@ -13,6 +13,12 @@ Go-сервис генерации и разбора файлов для SBE-п�
   `extra` — svg/mmd для `mermaid`). Mermaid/png/html — см. `mermaid.go` и сервис `agent-mermaid`.
 - `POST /api/agent/file/parse` — multipart `file` → извлечение содержимого
   (`{kind, text | sheets | data}`).
+- `POST /api/agent/file/store` (2026-09-06, `client_file_store.go`) — multipart
+  `file`+`file_name`, whitelist расширений (`.png`/`.html`): сохраняет уже
+  готовый файл, отрисованный НА КЛИЕНТЕ (веб-агент), в S3 — тот же ответ
+  `GenerateResponse`, что у `/file/generate`. Используется графиками
+  (ApexCharts вместо mermaid) и презентациями (self-contained HTML) — см.
+  историю ниже.
 - `GET /api/agent/health`.
 - Таблица: `agent_permissions(app, email, role)` (viewer(1) < editor(2) < admin(3);
   seed owner=admin).
@@ -73,6 +79,36 @@ go test ./...   # рендеры/парсеры (files_test.go)
 
 ## История
 
+- **2026-09-06 — хранение клиентски отрисованных файлов (графики + презентации),
+  `client_file_store.go`.** Живая жалоба пользователя, две связанные проблемы
+  веб-агента: (1) графики `create_png` рисовались сервером через mermaid
+  `xychart-beta` — у грамматики физически нет ни легенды, ни подписи оси Y,
+  внешний вид графика был почти неуправляем; (2) презентации веб-агент
+  собирал как плоский HTML-отчёт (`create_html`) вместо настоящих слайдов —
+  единственный подходящий по названию глобальный скил (`presentation-creator`)
+  оказался про другой формат (React/Vite/Recharts со стилем Sentry), агент не
+  мог им воспользоваться. Дизайн: `docs/superpowers/specs/
+  2026-09-06-web-agent-chart-rendering-design.md` и `...-presentations-
+  design.md`. Решение для обеих — рендер переехал НА КЛИЕНТ (браузер, полный
+  контроль внешнего вида): графики — ApexCharts (порт `sbe-dashboards/src/
+  services/chart-builder.ts`), презентации — формат `sbe-presentations` 1:1
+  (порт `presentation-generator.ts`, шаблон «Технониколь»). Сервер в обоих
+  случаях больше не строит контент — только сохраняет уже готовый файл.
+  - **`POST /api/agent/file/store`** — общий эндпоинт для обоих случаев
+    (заменил прежний PNG-only `chart_store.go`/`/api/agent/chart/store`,
+    файл удалён): multipart `file` (имя определяет расширение) + `file_name`,
+    whitelist `.png`/`.html`, `requirePerm("viewer")` как остальные роуты.
+  - Старый серверный mermaid-путь `create_png` (ветка `mermaid` — готовый код
+    от `create_mermaid`) не тронут — рендерится по-прежнему на сервере.
+  - Obsidian-плагин `sbe-agent`/`sbe-presentations`/`sbe-dashboards` не
+    менялись — только веб-агент (`sbe-web`, см. его `AGENTS.md`).
+  - **Живой тест перед деплоем** (Playwright, реальный Chromium, dev-сервер
+    `sbe-web`, без сети/авторизации — только сам рендеринг): 3 графика
+    (bar/donut/line, легенда+подписи осей) + презентация из 7 слайдов всех
+    layout, графики как иллюстрации/фон — визуально подтверждено
+    скриншотами (легенда и подписи реально видны на графике, слайды и
+    полноэкранный показ работают).
+  - `go build`/`go vet` — чисто.
 - **2026-09-06 — ЮГайл: «мои задачи» без похода за пользователями + агрегация
   по периодам/исполнителям (`yougile_stats.go`).** Живая жалоба: на «найди мои
   задачи в yougile» модель не знала свой id в ЮГайле и, чтобы его найти, сама
