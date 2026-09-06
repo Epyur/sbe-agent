@@ -135,7 +135,8 @@ export class AgentEngine {
         const count = (seenCalls.get(callKey) || 0) + 1;
         seenCalls.set(callKey, count);
         if (!IDEMPOTENT_TOOLS.has(turn.tool) && count > 2) {
-          params.onAssistant(`Защита от зацикливания: инструмент «${turn.tool}» вызван одинаково ${count} раз. Измените параметры или уточните задачу.`);
+          await this.finishWithSynthesis(transcript, system, params,
+            `Защита от зацикливания: инструмент «${turn.tool}» вызван одинаково ${count} раз.`);
           return;
         }
 
@@ -148,7 +149,26 @@ export class AgentEngine {
       }
     }
 
-    params.onAssistant(`Превышено число шагов агента (${this.maxIterations}). Попробуйте сформулировать задачу более конкретно, либо увеличьте лимит шагов в настройках агента.`);
+    await this.finishWithSynthesis(transcript, system, params,
+      `Превышено число шагов агента (${this.maxIterations}).`);
+  }
+
+  /** Вместо того чтобы просто оборвать ход общей фразой (пользователь не видел
+   * ничего из уже реально найденных данных, хотя тулы отработали) — даём модели
+   * ОДИН последний ход без доступа к тулам: собрать ответ из того, что уже есть
+   * в транскрипте. Тот же фикс сделан в веб-агенте (sbe-web) — см. его AGENTS.md. */
+  private async finishWithSynthesis(
+    transcript: string, system: string, params: RunAgentParams, reason: string,
+  ): Promise<void> {
+    const note = `\n[Система] ${reason} Дальнейшие вызовы инструментов недоступны. Сформулируй итоговый ответ пользователю ТОЛЬКО на основе данных, уже полученных выше в этом диалоге (результаты тулов) — не выдумывай новые данные. Если реально ничего полезного не найдено — честно скажи об этом и предложи, как уточнить запрос. Ответь обычным текстом, без JSON.\n`;
+    try {
+      const raw = await this.llm.complete(system, transcript + note, params.model ? { model: params.model } : undefined);
+      const turns = this.parseTurns(raw);
+      const finalTurn = turns.find(t => t.type === 'final');
+      params.onAssistant((finalTurn?.text || '').trim() || reason);
+    } catch (e: unknown) {
+      params.onAssistant(reason || `Ошибка обращения к LLM: ${errorMessage(e)}`);
+    }
   }
 
   /** Ленивый разбор хода LLM в список ходов: все подряд идущие JSON-объекты
