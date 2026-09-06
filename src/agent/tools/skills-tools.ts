@@ -197,7 +197,11 @@ export async function readSkill(ctx: AgentToolContext, args: Record<string, unkn
     if (local) {
       const content = await ctx.readVaultText(mdPath);
       const dir = mdPath.slice(0, mdPath.lastIndexOf('/'));
-      const files = (await ctx.listVaultDir(dir)).filter(f => !f.endsWith('SKILL.md')).map(f => f.split('/').pop() || f);
+      const nested = (await ctx.listVaultTree(dir)).filter(f => !f.endsWith('/SKILL.md') && !f.endsWith('SKILL.md'));
+      const files: Array<{ name: string; content: string }> = [];
+      for (const f of nested) {
+        try { files.push({ name: f.slice(dir.length + 1), content: await ctx.readVaultText(f) }); } catch { /* пропускаем бинарные/битые */ }
+      }
       return {
         ok: true,
         summary: `Скил «${safeName}» загружен. Следуй его инструкциям.`,
@@ -207,11 +211,10 @@ export async function readSkill(ctx: AgentToolContext, args: Record<string, unkn
     // глобальный скил (с сервера)
     const g = await getGlobalSkill(ctx, safeName);
     if (g) {
-      const files = g.files.map(f => f.name);
       return {
         ok: true,
         summary: `Глобальный скил «${g.name}» загружен. Следуй его инструкциям.`,
-        data: { name: g.name, skill_md: g.content, files },
+        data: { name: g.name, skill_md: g.content, files: g.files },
       };
     }
     return { ok: false, summary: '', error: `Скил «${safeName}» не найден ни локально, ни глобально. Сначала вызовите list_skills.` };
