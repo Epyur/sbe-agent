@@ -123,6 +123,7 @@ export async function getDocuments(
       curator_email: i.curator_email,
       deadline: i.deadline,
       file_name: i.file_name,
+      file_key: i.file_key,
       link_url: i.link_url,
       parent_id: i.parent_id,
       completed: i.completed,
@@ -133,6 +134,39 @@ export async function getDocuments(
       ok: true,
       summary: `Документы (источник: ${source}): найдено ${items.length}, показано ${picked.length}.`,
       data: { source, total: items.length, items: picked },
+    };
+  } catch (e: unknown) {
+    return { ok: false, summary: '', error: errorMessage(e) };
+  }
+}
+
+/** Временная ссылка на загруженный файл документа (presigned, действует ~7 дней) —
+ * карточка может нести файл ДВУМЯ разными способами: внешняя ссылка (link_url) или
+ * загруженный в систему файл (file_key, link_url тогда пусто) — без этого тула
+ * второй случай выглядел как «файла нет», хотя он есть. */
+export async function getDocumentLink(
+  ctx: AgentToolContext,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  try {
+    const fileKey = String(args.file_key || '').trim();
+    if (!fileKey) {
+      return { ok: false, summary: '', error: 'Требуется поле file_key (из get_documents).' };
+    }
+    const token = await ctx.getToken('documents');
+    const res = await request({
+      url: `${ctx.getApiUrl()}/api/documents/file-link?key=${encodeURIComponent(fileKey)}`,
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    }, 60000);
+    assertOk(res, 'документы');
+    const parsed = JSON.parse(res.text) as { url?: string };
+    const url = parsed.url || '';
+    if (!url) return { ok: false, summary: '', error: 'Сервер не вернул ссылку на файл.' };
+    return {
+      ok: true,
+      summary: 'Ссылка на файл документа получена. Скажи пользователю, что файл можно открыть по ссылке (действует ~7 дней); НЕ вставляй длинный URL в текст ответа без необходимости.',
+      data: { url },
     };
   } catch (e: unknown) {
     return { ok: false, summary: '', error: errorMessage(e) };
